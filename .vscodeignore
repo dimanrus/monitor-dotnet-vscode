@@ -1,0 +1,16 @@
+# В поставку попадают только собранные файлы (dist), ресурсы и манифест.
+.vscode/**
+src/**
+test/**
+scripts/**
+bridge/**
+samples/**
+media/**
+node_modules/**
+**/*.ts
+**/*.map
+**/*.test.*
+tsconfig*.json
+.gitignore
+# Описание требований (не часть расширения)
+Monitoring Dotnet.md

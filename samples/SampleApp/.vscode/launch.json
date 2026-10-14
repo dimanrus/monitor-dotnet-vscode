@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Отладка SampleApp",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "собрать SampleApp",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/SampleApp.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Отладка SampleApp под нагрузкой (перегрузка CPU)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "собрать SampleApp",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/SampleApp.dll",
+      "args": ["--stress"],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Запуск SampleApp без отладки",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "собрать SampleApp",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/SampleApp.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false,
+      "noDebug": true
+    }
+  ]
+}

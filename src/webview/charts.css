@@ -1,0 +1,309 @@
+/*
+ * Стили панели Performance.
+ * Цвета берутся из переменных темы VS Code, поэтому панель автоматически
+ * подстраивается под светлую, тёмную и контрастную темы.
+ */
+
+:root {
+  /* Палитра рядов. Значения по умолчанию — на случай, если тема не задала переменную. */
+  --chart-cpu: var(--vscode-charts-blue, #4b9cff);
+  --chart-private-memory: var(--vscode-charts-purple, #b180d7);
+  --chart-managed-heap: var(--vscode-charts-green, #89d185);
+  --chart-working-set: var(--vscode-charts-lines, #808080);
+  --chart-allocation: var(--vscode-charts-orange, #d18616);
+  --chart-gen0: var(--vscode-charts-yellow, #e5c07b);
+  --chart-gen1: var(--vscode-charts-orange, #d18616);
+  --chart-gen2: var(--vscode-charts-red, #f14c4c);
+  --chart-grid: var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
+  --chart-text: var(--vscode-descriptionForeground, #999);
+  --chart-crosshair: var(--vscode-editor-foreground, #ccc);
+  --chart-selection: var(--vscode-editor-selectionBackground, rgba(58, 110, 165, 0.35));
+  --chart-selection-border: var(--vscode-focusBorder, #007fd4);
+  /* Цвета найденных проблем: полосы на графиках и значки в списке. */
+  --chart-issue-info: var(--vscode-charts-blue, #4b9cff);
+  --chart-issue-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --chart-issue-critical: var(--vscode-editorError-foreground, #f14c4c);
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background);
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Шапка: сведения о процессе и кнопки управления. */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--chart-grid);
+  flex: 0 0 auto;
+}
+
+.process-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.process-details {
+  color: var(--chart-text);
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.controls {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+button {
+  font-family: inherit;
+  font-size: 0.9em;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--chart-grid);
+  border-radius: 3px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+button[aria-pressed='true'] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border-color: var(--vscode-button-background);
+}
+
+/* Плитки с текущими значениями. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+  padding: 8px 10px;
+  flex: 0 0 auto;
+}
+
+.card {
+  border: 1px solid var(--chart-grid);
+  border-radius: 4px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.card-label {
+  color: var(--chart-text);
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-value {
+  font-size: 1.15em;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Список найденных проблем. */
+.issues {
+  margin: 0 10px 6px;
+  border: 1px solid var(--chart-grid);
+  border-radius: 4px;
+  padding: 6px 8px;
+  flex: 0 0 auto;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.issues-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.issues-hint {
+  color: var(--chart-text);
+  font-size: 0.85em;
+  margin-bottom: 4px;
+}
+
+.issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+.issue:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+
+.issue-badge {
+  flex: 0 0 auto;
+  line-height: 1.4;
+}
+
+.issue-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.issue-title {
+  font-weight: 600;
+}
+
+.issue-details {
+  color: var(--chart-text);
+  font-size: 0.85em;
+}
+
+/* Область графиков прокручивается: графиков может быть больше, чем помещается. */
+.charts {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 10px 10px;
+  min-height: 0;
+}
+
+.chart {
+  margin-top: 10px;
+}
+
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.chart-title {
+  font-weight: 600;
+}
+
+.legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--chart-text);
+  font-size: 0.85em;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.chart-canvas-wrap {
+  position: relative;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 140px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* Подсказка при наведении. */
+.tooltip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: var(--vscode-editorHoverWidget-background, #252526);
+  border: 1px solid var(--vscode-editorHoverWidget-border, #454545);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 0.85em;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  display: none;
+}
+
+.tooltip-time {
+  color: var(--chart-text);
+  margin-bottom: 3px;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Сводка по выделенному диапазону. */
+.summary {
+  margin: 10px 0 0;
+  border: 1px solid var(--chart-selection-border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  flex: 0 0 auto;
+}
+
+.summary-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.summary-row {
+  display: flex;
+  gap: 8px;
+  color: var(--chart-text);
+  font-size: 0.9em;
+}
+
+.summary-row span:first-child {
+  min-width: 150px;
+  color: var(--vscode-foreground);
+}
+
+.notice {
+  padding: 12px;
+  color: var(--chart-text);
+}

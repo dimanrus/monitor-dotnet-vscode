@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "собрать расширение",
+      "type": "shell",
+      "command": "npm run build",
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent" }
+    },
+    {
+      "label": "сборка расширения в режиме наблюдения",
+      "type": "shell",
+      "command": "npm run watch",
+      "isBackground": true,
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": { "reveal": "silent" }
+    },
+    {
+      "label": "собрать мост",
+      "type": "shell",
+      "command": "npm run bridge:build",
+      "group": "build",
+      "problemMatcher": ["$msCompile"],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "тесты расширения",
+      "type": "shell",
+      "command": "npm test",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "тесты моста",
+      "type": "shell",
+      "command": "npm run test:bridge",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    }
+  ]
+}

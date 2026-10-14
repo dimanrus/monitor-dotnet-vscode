@@ -1,0 +1,358 @@
+{
+  "name": "monitor-dotnet",
+  "displayName": "Monitor Dotnet",
+  "description": "%description%",
+  "version": "1.0.0",
+  "type": "module",
+  "publisher": "dimanrus",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dimanrus/monitor-dotnet-vscode.git"
+  },
+  "homepage": "https://github.com/dimanrus/monitor-dotnet-vscode#readme",
+  "bugs": {
+    "url": "https://github.com/dimanrus/monitor-dotnet-vscode/issues"
+  },
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Debuggers",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "dotnet",
+    ".net",
+    "monitoring",
+    "profiling",
+    "counters",
+    "metrics",
+    "debug"
+  ],
+  "icon": "resources/monitor.png",
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onDebug",
+    "onDebugResolve:coreclr",
+    "onDebugResolve:dotnet",
+    "onDebugResolve:clr",
+    "onView:monitor-dotnet.performance",
+    "onView:monitor-dotnet.counters",
+    "onView:monitor-dotnet.environment",
+    "onCommand:monitor-dotnet.startMonitoring",
+    "onCommand:monitor-dotnet.attachToProcess"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "monitor-dotnet",
+          "title": "Monitor Dotnet",
+          "icon": "resources/monitor.svg"
+        }
+      ]
+    },
+    "views": {
+      "monitor-dotnet": [
+        {
+          "id": "monitor-dotnet.performance",
+          "name": "%view.performance%",
+          "icon": "resources/chart.svg",
+          "contextualTitle": "%view.performance.contextual%",
+          "type": "webview"
+        },
+        {
+          "id": "monitor-dotnet.issues",
+          "name": "%view.issues%",
+          "icon": "resources/issues.svg",
+          "contextualTitle": "%view.issues.contextual%"
+        },
+        {
+          "id": "monitor-dotnet.counters",
+          "name": "%view.counters%",
+          "icon": "resources/counters.svg",
+          "contextualTitle": "%view.counters.contextual%"
+        },
+        {
+          "id": "monitor-dotnet.environment",
+          "name": "%view.environment%",
+          "icon": "resources/environment.svg",
+          "contextualTitle": "%view.environment.contextual%"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "monitor-dotnet.startMonitoring",
+        "title": "%command.startMonitoring.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "monitor-dotnet.stopMonitoring",
+        "title": "%command.stopMonitoring.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "monitor-dotnet.attachToProcess",
+        "title": "%command.attachToProcess.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "monitor-dotnet.focusPerformance",
+        "title": "%command.focusPerformance.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "monitor-dotnet.clearData",
+        "title": "%command.clearData.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "monitor-dotnet.collectCallStack",
+        "title": "%command.collectCallStack.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "monitor-dotnet.collectMemorySnapshot",
+        "title": "%command.collectMemorySnapshot.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(database)"
+      },
+      {
+        "command": "monitor-dotnet.startProfiling",
+        "title": "%command.startProfiling.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(record)"
+      },
+      {
+        "command": "monitor-dotnet.stopProfiling",
+        "title": "%command.stopProfiling.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "monitor-dotnet.openSettings",
+        "title": "%command.openSettings.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "monitor-dotnet.copyEnvironmentValue",
+        "title": "%command.copyEnvironmentValue.title%",
+        "category": "Monitor Dotnet"
+      },
+      {
+        "command": "monitor-dotnet.filterEnvironment",
+        "title": "%command.filterEnvironment.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "monitor-dotnet.selectIssueInterval",
+        "title": "%command.selectIssueInterval.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(graph)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "monitor-dotnet.startMonitoring",
+          "when": "view == monitor-dotnet.performance && !monitor-dotnet.isMonitoring",
+          "group": "navigation@1"
+        },
+        {
+          "command": "monitor-dotnet.stopMonitoring",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
+          "group": "navigation@1"
+        },
+        {
+          "command": "monitor-dotnet.collectCallStack",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
+          "group": "monitoring@1"
+        },
+        {
+          "command": "monitor-dotnet.collectMemorySnapshot",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
+          "group": "monitoring@2"
+        },
+        {
+          "command": "monitor-dotnet.startProfiling",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring && !monitor-dotnet.isProfiling",
+          "group": "monitoring@3"
+        },
+        {
+          "command": "monitor-dotnet.stopProfiling",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring && monitor-dotnet.isProfiling",
+          "group": "monitoring@3"
+        },
+        {
+          "command": "monitor-dotnet.clearData",
+          "when": "view == monitor-dotnet.performance",
+          "group": "monitoring@4"
+        },
+        {
+          "command": "monitor-dotnet.openSettings",
+          "when": "view == monitor-dotnet.performance",
+          "group": "setup@1"
+        },
+        {
+          "command": "monitor-dotnet.filterEnvironment",
+          "when": "view == monitor-dotnet.environment",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "monitor-dotnet.focusPerformance"
+        },
+        {
+          "command": "monitor-dotnet.filterEnvironment"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "monitor-dotnet.copyEnvironmentValue",
+          "when": "view == monitor-dotnet.environment && viewItem == entry",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.selectIssueInterval",
+          "when": "view == monitor-dotnet.issues && viewItem =~ /^issue\\./",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Monitor Dotnet",
+      "properties": {
+        "monitor-dotnet.enableMonitoring": {
+          "type": "string",
+          "enum": [
+            "onDebugOrRun",
+            "onDebug",
+            "never"
+          ],
+          "enumDescriptions": [
+            "%config.enableMonitoring.enum0%",
+            "%config.enableMonitoring.enum1%",
+            "%config.enableMonitoring.enum2%"
+          ],
+          "default": "onDebugOrRun",
+          "markdownDescription": "%config.enableMonitoring.markdownDescription%"
+        },
+        "monitor-dotnet.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.autoReveal.description%"
+        },
+        "monitor-dotnet.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.2,
+          "maximum": 60,
+          "description": "%config.refreshIntervalSeconds.description%"
+        },
+        "monitor-dotnet.chartWindowSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "%config.chartWindowSeconds.description%"
+        },
+        "monitor-dotnet.enableIssueDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.enableIssueDetection.description%"
+        },
+        "monitor-dotnet.counterProviders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "System.Runtime",
+            "Microsoft.AspNetCore.Hosting",
+            "Microsoft.AspNetCore.Server.Kestrel",
+            "System.Net.Http",
+            "System.Net.Sockets"
+          ],
+          "markdownDescription": "%config.counterProviders.markdownDescription%"
+        },
+        "monitor-dotnet.metricProviders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "*"
+          ],
+          "markdownDescription": "%config.metricProviders.markdownDescription%"
+        },
+        "monitor-dotnet.dotnetPath": {
+          "type": "string",
+          "default": "dotnet",
+          "description": "%config.dotnetPath.description%"
+        },
+        "monitor-dotnet.bridgePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%config.bridgePath.markdownDescription%"
+        },
+        "monitor-dotnet.processNameFilter": {
+          "type": "string",
+          "default": "",
+          "description": "%config.processNameFilter.description%"
+        },
+        "monitor-dotnet.profilingOutputDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "%config.profilingOutputDirectory.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview.json",
+    "test": "node --test \"src/**/*.test.ts\" \"test/**/*.test.ts\"",
+    "bridge:build": "dotnet publish bridge/MonitorDotnet.Bridge/MonitorDotnet.Bridge.csproj -c Release -o media/bridge",
+    "test:bridge": "dotnet test bridge/MonitorDotnet.Bridge.Tests/MonitorDotnet.Bridge.Tests.csproj",
+    "vscode:prepublish": "node scripts/build.ts --production",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "l10n": "./l10n",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "%capabilities.untrustedWorkspaces%"
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "%capabilities.virtualWorkspaces%"
+    }
+  },
+  "galleryBanner": {
+    "color": "#3D1C8E",
+    "theme": "dark"
+  }
+}

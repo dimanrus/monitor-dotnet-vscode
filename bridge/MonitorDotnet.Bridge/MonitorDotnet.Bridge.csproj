@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Мост (bridge) — отдельный процесс на .NET, который подключается к целевому приложению
+    через EventPipe и отдаёт собранные данные расширению VS Code в формате NDJSON (по строке на JSON).
+    Расширение не работает с диагностическими API напрямую: всю работу делает этот процесс.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>MonitorDotnet.Bridge</AssemblyName>
+    <RootNamespace>MonitorDotnet.Bridge</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RollForward>LatestMajor</RollForward>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Подключение к процессу и управление сессией EventPipe. -->
+    <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.750501" />
+    <!-- Разбор потока событий EventPipe (счётчики, метрики, события GC). -->
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Тесты работают с внутренними типами моста. -->
+    <InternalsVisibleTo Include="MonitorDotnet.Bridge.Tests" />
+  </ItemGroup>
+
+</Project>

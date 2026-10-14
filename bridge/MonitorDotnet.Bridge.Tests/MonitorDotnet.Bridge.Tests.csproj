@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Тесты моста: проверяют разбор данных и реальный сбор метрик с демонстрационного приложения. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <LangVersion>latest</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ссылка нужна и для тестов внутренних классов, и для запуска моста в e2e-тесте. -->
+    <ProjectReference Include="..\MonitorDotnet.Bridge\MonitorDotnet.Bridge.csproj" />
+    <!-- Образец собирается вместе с тестами; его сборку использует e2e-тест. -->
+    <ProjectReference Include="..\..\samples\SampleApp\SampleApp.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
