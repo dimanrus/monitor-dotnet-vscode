@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Отладка WebApi (coreclr, сборка)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "собрать WebApi",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/WebApi.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Отладка WebApi (dotnet, проект) — как C# Dev Kit",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/WebApi.csproj"
+    },
+    {
+      "name": "Запуск WebApi без отладки",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "собрать WebApi",
+      "program": "${workspaceFolder}/bin/Debug/net10.0/WebApi.dll",
+      "noDebug": true
+    }
+  ]
+}

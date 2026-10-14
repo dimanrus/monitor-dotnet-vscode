@@ -13,7 +13,14 @@ First release: a .NET monitoring tool for VS Code that appears automatically whe
 - 🗑️ GC markers coloured by generation (`gen0` / `gen1` / `gen2`) with collection reason and pause duration
 - 🧮 Drag to select a time range: minimum, average and maximum, GC count and average pause for the range
 - ⏸️ Pause and resume live updates, `Esc` or double click to reset the selection
-- 🎨 Current-value tiles and colours that follow the light, dark and high-contrast themes
+
+### 🎯 Choosing the process
+
+- 🎯 New **Select Process to Monitor…** command and a **Process** dropdown in the Performance panel header
+- 📋 The list shows debug sessions first (with their PID) and then other .NET processes with the full command line
+- ✅ The monitored process is marked with a check mark, so you can see which one is being watched
+- 🛡️ The process of a session is remembered, and monitoring is never switched behind your back: a second debug session does not steal it — the extension offers to switch instead
+- ↩️ When the monitored session ends, the extension suggests another running process
 
 ### 🩺 Automatic issue detection
 
@@ -25,7 +32,10 @@ First release: a .NET monitoring tool for VS Code that appears automatically whe
 - 🟥 Highlighted bands on the matching chart, coloured by severity (info / warning / critical)
 - 🖱️ Click an issue to select its time range: the charts zoom out to fit it and the range summary appears
 - 🌳 Native **Issues** view with a theme icon per severity and the interval in the description; clicking an entry opens the charts and selects that interval
-- 🎚️ Toggle with the `monitor-dotnet.enableIssueDetection` setting (on by default)
+- 🧷 Problems are kept per process: the chart panel and its bands follow the process on the charts, while the **Issues** view groups the history by process and marks the monitored one
+- 💾 Every issue keeps its own points, so an interval stays analysable after the live charts have moved past it: clicking it draws the saved range from those points and shows the range summary
+- 🏷️ A banner names the process of a saved interval and offers **Back to live data**; the tiles of the current process are hidden while an interval is open
+- 🧹 The next debug session starts the list over, and **Clear Collected Data** forgets it as well
 
 ### 🔢 Counters and metrics
 
@@ -39,14 +49,6 @@ First release: a .NET monitoring tool for VS Code that appears automatically whe
 - 🔤 Environment variables of the monitored process
 - 🖥️ System properties: runtime version, startup flags, command line, OS and architecture
 - 🔍 Filter by name or value, copy any value to the clipboard
-
-### 🐞 Debug integration
-
-- 🚀 Monitoring starts automatically on .NET debug sessions: **on debug or run**, **on debug only** or **never**
-- 🎯 Debuggee detection by attach PID, program path, name filter and session start time
-- 🧩 Recognises both launch styles: apphost (`App` next to `App.dll`) and runtime host (`dotnet App.dll`)
-- 🔌 Manual **Attach to .NET Process…** for any running .NET process
-- 📟 Status bar indicator with CPU load and private memory
 
 ### 🛠 Profiling on demand
 
@@ -64,22 +66,3 @@ First release: a .NET monitoring tool for VS Code that appears automatically whe
 - 🛡️ Strict webview content security policy with a per-load nonce
 - 🔒 Explicit workspace scope: `extensionKind: workspace` (monitoring runs next to the debuggee, also in remote scenarios) and `capabilities` that keep the extension out of untrusted and virtual workspaces
 - 📋 Requirements documented in the README: VS Code 1.100+, .NET 10 runtime for the bundled bridge, optional SDK and diagnostic tools
-
-### 🎨 Look and feel
-
-- 🖼️ Extension icon `resources/monitor.png` (256×256): a monitor screen with a live chart
-- 📖 The icon heads the README of both languages
-
-### 🧪 Quality
-
-- ✅ 103 extension tests and 22 bridge tests, including an opt-in end-to-end run against a real .NET process
-- 🔍 Type checking with TypeScript 7 and bundling with esbuild
-- 🧪 `SampleApp` demo application that generates counters, metrics, allocations and CPU load
-- 🧹 Diagnostics: the panel reports render problems and canvas statistics to the extension log
-
----
-
-## 🔗 Links
-
-- 📦 Package: `monitor-dotnet-1.0.0.vsix`
-- 📖 Documentation: `README.md` · `README.ru.md`

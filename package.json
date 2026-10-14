@@ -32,7 +32,11 @@
     "profiling",
     "counters",
     "metrics",
-    "debug"
+    "debug",
+    "monitor",
+    "c#",
+    "trace",
+    "dump"
   ],
   "icon": "resources/monitor.png",
   "main": "./dist/extension.cjs",
@@ -163,6 +167,12 @@
         "title": "%command.selectIssueInterval.title%",
         "category": "Monitor Dotnet",
         "icon": "$(graph)"
+      },
+      {
+        "command": "monitor-dotnet.selectTarget",
+        "title": "%command.selectTarget.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(server-process)"
       }
     ],
     "menus": {
@@ -171,6 +181,11 @@
           "command": "monitor-dotnet.startMonitoring",
           "when": "view == monitor-dotnet.performance && !monitor-dotnet.isMonitoring",
           "group": "navigation@1"
+        },
+        {
+          "command": "monitor-dotnet.selectTarget",
+          "when": "view == monitor-dotnet.performance",
+          "group": "navigation@2"
         },
         {
           "command": "monitor-dotnet.stopMonitoring",

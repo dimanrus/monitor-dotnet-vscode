@@ -11,7 +11,9 @@ import { selectDebuggeePid } from './core/debuggeeMatching.ts';
 import { translate } from './core/locale.ts';
 import { MonitorState } from './core/monitorState.ts';
 import { Logger } from './logger.ts';
+import { buildTargets, targetCount, type TargetGroups } from './core/targetChoices.ts';
 import { listDotnetProcesses } from './monitor/dotnetProcesses.ts';
+import { DebugSessionRegistry, snapshotFromSession, type DebugSessionSnapshot } from './monitor/debugSessions.ts';
 import { MonitorController } from './monitor/monitorController.ts';
 import { ProfilingTools } from './monitor/profilingTools.ts';
 import { activateLocalization } from './localization.ts';
@@ -19,12 +21,17 @@ import { getSettings, onDidChangeSettings, openSettings, type MonitorSettings } 
 import { CountersTreeProvider } from './views/countersTreeProvider.ts';
 import { EnvironmentTreeProvider } from './views/environmentTreeProvider.ts';
 import { collectIssues } from './core/issueSource.ts';
+import { IssueStore } from './core/issueStore.ts';
 import { IssuesTreeProvider } from './views/issuesTreeProvider.ts';
 import { PerformanceChartPanel } from './views/performanceChartPanel.ts';
 import { MonitorStatusBar } from './views/statusBar.ts';
 
-/** Типы сессий отладки, которые относятся к .NET. */
-const DOTNET_DEBUG_TYPES = new Set(['coreclr', 'clr', 'dotnet', 'dotnet-core']);
+/**
+ * Типы сессий отладки, которые относятся к .NET.
+ * `aspire` — тип расширения Aspire: под отладкой находится проект AppHost,
+ * приложение запускает Aspire CLI, а не сам отладчик.
+ */
+const DOTNET_DEBUG_TYPES = new Set(['coreclr', 'clr', 'dotnet', 'dotnet-core', 'aspire']);
 
 /** Как долго искать процесс отладки после старта сессии. */
 const DEBUGGEE_SEARCH_TIMEOUT_MS = 20_000;
@@ -50,19 +57,57 @@ export function activate(context: vscode.ExtensionContext): void {
   const controller = new MonitorController(state, logger, context.extensionPath, () => settings);
   const profiling = new ProfilingTools(logger);
 
+  // Проблемы копятся по процессам: данные монитора очищаются при смене процесса,
+  // а найденные интервалы должны оставаться видимыми — в дереве, сгруппированные по процессу.
+  const issues = new IssueStore(
+    () => collectIssues(state, settings.enableIssueDetection),
+    () => settings.enableIssueDetection,
+    () => {
+      const hello = state.hello;
+      if (hello === undefined) {
+        return undefined;
+      }
+
+      return {
+        key: `pid:${hello.pid}`,
+        label: hello.processName.length > 0 ? `${hello.processName} (PID ${hello.pid})` : `PID ${hello.pid}`,
+      };
+    },
+    // Точки интервалов сохраняются, пока они ещё есть у монитора: иначе выделить
+    // найденное место на графиках будет нечем, когда ряд уйдёт вперёд.
+    () => ({ points: state.series, gcEvents: state.gcEvents }),
+  );
+
   // Панель графиков: webview с настоящими графиками — CPU, сборка мусора и память.
-  const performancePanel = new PerformanceChartPanel(
+  let performancePanel: PerformanceChartPanel | undefined;
+  performancePanel = new PerformanceChartPanel(
     context.extensionUri,
     state,
     () => settings.chartWindowSeconds,
     () => settings.refreshIntervalSeconds,
-    () => settings.enableIssueDetection,
+    // Полосы на графиках и список над ними относятся к процессу, чьи данные показаны.
+    () => issues.current(),
     logger,
+    {
+      listTargets: () => collectTargets(sessions, controller),
+      selectTarget: value => switchTarget(value, controller, sessions, getSettings, logger, id => monitoredSessionId = id),
+      // Нажатие на проблему в списке панели: панель уже создана к моменту вызова.
+      revealIssue: issue => {
+        if (performancePanel !== undefined) {
+          return revealIssueInterval(issue, state, issues, performancePanel);
+        }
+
+        return undefined;
+      },
+    },
   );
-  // Дерево проблем: тот же список, что и в панели графиков, но в нативном виде.
+  // Реестр запущенных сессий отладки: из него собирается список целей мониторинга.
+  const sessions = new DebugSessionRegistry();
+
+  // Дерево проблем: тот же список, что и в панели графиков, но в нативном виде и по процессам.
   const issuesProvider = new IssuesTreeProvider({
     state,
-    collect: () => collectIssues(state, settings.enableIssueDetection),
+    listGroups: () => issues.groups(),
     isEnabled: () => settings.enableIssueDetection,
   });
   const countersProvider = new CountersTreeProvider(state);
@@ -115,23 +160,54 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
 
-    vscode.debug.onDidStartDebugSession(session => void handleDebugSessionStarted(session, controller, logger, () => settings, id => monitoredSessionId = id)),
-    vscode.debug.onDidTerminateDebugSession(session => void handleDebugSessionTerminated(session, controller, () => monitoredSessionId)),
+    sessions,
+    vscode.debug.onDidStartDebugSession(session => void handleDebugSessionStarted(
+      session,
+      controller,
+      sessions,
+      logger,
+      () => settings,
+      () => monitoredSessionId,
+      id => monitoredSessionId = id,
+      () => monitoredSessionId = undefined,
+      () => void performancePanel.refreshTargets(),
+      () => issues.clear(),
+    )),
+    vscode.debug.onDidTerminateDebugSession(session => void handleDebugSessionTerminated(
+      session,
+      controller,
+      sessions,
+      logger,
+      () => monitoredSessionId,
+      () => monitoredSessionId = undefined,
+      () => void performancePanel.refreshTargets(),
+    )),
 
     vscode.commands.registerCommand('monitor-dotnet.startMonitoring', () => startMonitoringCommand(controller, state, logger)),
     vscode.commands.registerCommand('monitor-dotnet.stopMonitoring', () => controller.stop(translate('Monitoring stopped by the user.'))),
     vscode.commands.registerCommand('monitor-dotnet.attachToProcess', () => attachToProcessCommand(controller, state, logger)),
+    vscode.commands.registerCommand('monitor-dotnet.selectTarget', () =>
+      selectTargetCommand(controller, sessions, logger, () => settings, (id) => monitoredSessionId = id, () => monitoredSessionId)),
     vscode.commands.registerCommand('monitor-dotnet.focusPerformance', async () => {
       await vscode.commands.executeCommand('monitor-dotnet.performance.focus');
     }),
-    vscode.commands.registerCommand('monitor-dotnet.clearData', () => state.clear()),
+    vscode.commands.registerCommand('monitor-dotnet.clearData', () => {
+      // Вместе с собранными данными забываем и найденные по ним проблемы.
+      state.clear();
+      issues.clear();
+    }),
     // Переход к интервалу из дерева проблем: выделяем его на графиках.
-    vscode.commands.registerCommand('monitor-dotnet.selectIssueInterval', async (range?: { fromMs?: number; toMs?: number }) => {
-      if (typeof range?.fromMs !== 'number' || typeof range.toMs !== 'number') {
+    vscode.commands.registerCommand('monitor-dotnet.selectIssueInterval', async (range?: Partial<IssueIntervalRequest>) => {
+      if (typeof range?.fromMs !== 'number' || typeof range.toMs !== 'number' || performancePanel === undefined) {
         return;
       }
 
-      await performancePanel.selectInterval(range.fromMs, range.toMs);
+      await revealIssueInterval(
+        { ...range, fromMs: range.fromMs, toMs: range.toMs },
+        state,
+        issues,
+        performancePanel,
+      );
     }),
     vscode.commands.registerCommand('monitor-dotnet.openSettings', () => openSettings()),
     vscode.commands.registerCommand('monitor-dotnet.copyEnvironmentValue', async (node: { description?: string }) => {
@@ -194,14 +270,25 @@ export function deactivate(): void {
 async function handleDebugSessionStarted(
   session: vscode.DebugSession,
   controller: MonitorController,
+  sessions: DebugSessionRegistry,
   logger: Logger,
   getCurrentSettings: () => MonitorSettings,
+  getMonitoredSessionId: () => string | undefined,
   onMonitoringStarted: (sessionId: string) => void,
+  onMonitoringReleased: () => void,
+  onSessionsChanged: () => void,
+  /** Новый прогон отладки: найденные ранее проблемы относятся к прошлому запуску. */
+  onNewDebugRun: () => void,
 ): Promise<void> {
   if (!DOTNET_DEBUG_TYPES.has(session.type)) {
     logger.info(translate('Debug session "{0}" has type "{1}" — monitoring is not required.', session.name, session.type));
     return;
   }
+
+  // Сессию запоминаем всегда: она нужна в списке целей, даже если мониторинг выключен.
+  const snapshot = snapshotFromSession(session);
+  sessions.add(snapshot);
+  onSessionsChanged();
 
   const settings = getCurrentSettings();
   if (settings.enableMonitoring === 'never') {
@@ -215,22 +302,93 @@ async function handleDebugSessionStarted(
     return;
   }
 
-  const pid = await resolveDebuggeePid(session, settings, logger);
+  // Цель уже выбрана: в связке запускается несколько сессий, и переключаться между ними
+  // молча нельзя — иначе мониторинг будет перескакивать на последнюю запущенную.
+  if (getMonitoredSessionId() !== undefined) {
+    logger.info(translate('Monitoring is already running for another session; session "{0}" was not started automatically.', session.name));
+    void notifyAboutAlternativeTargets(sessions, controller);
+    // Процесс этой сессии всё равно ищем: он нужен в списке целей, чтобы можно было переключиться.
+    void resolveSessionPidInBackground(snapshot, settings, sessions, logger, onSessionsChanged);
+    return;
+  }
+
+  // Владение сессией захватываем до поиска процесса: поиск асинхронный, и за это время
+  // может стартовать вторая сессия связки — она не должна перехватить мониторинг.
+  onMonitoringStarted(session.id);
+
+  const pid = await resolveDebuggeePid(snapshot, settings, logger);
   if (pid === undefined) {
     logger.warn(translate('Could not determine the process for session "{0}". Monitoring is not started.', session.name));
+    onMonitoringReleased();
     void vscode.window.showWarningMessage(
-      translate('Monitor Dotnet: could not determine the process being debugged. Use the "Attach to .NET Process…" command or set monitor-dotnet.processNameFilter.'),
+      translate('Monitor Dotnet: could not determine the process being debugged. Use the "Select Process" command or set monitor-dotnet.processNameFilter.'),
     );
     return;
   }
+
+  sessions.setPid(session.id, pid);
+  onSessionsChanged();
 
   if (settings.autoReveal) {
     await vscode.commands.executeCommand('monitor-dotnet.performance.focus');
   }
 
   const started = await controller.start(pid, session.name);
-  if (started) {
-    onMonitoringStarted(session.id);
+  if (!started) {
+    onMonitoringReleased();
+    return;
+  }
+
+  // Мониторинг новой сессии начался: список проблем начинаем с чистого листа,
+  // чтобы прошлые интервалы не выдавались за найденные в этом прогоне.
+  onNewDebugRun();
+}
+
+/**
+ * Ищет процесс сессии, которая не стала целью мониторинга.
+ * Работает в фоне: без этого в списке целей такая сессия осталась бы без PID.
+ */
+async function resolveSessionPidInBackground(
+  session: DebugSessionSnapshot,
+  settings: MonitorSettings,
+  sessions: DebugSessionRegistry,
+  logger: Logger,
+  onSessionsChanged: () => void,
+): Promise<void> {
+  const pid = await resolveDebuggeePid(session, settings, logger);
+  if (pid === undefined) {
+    return;
+  }
+
+  sessions.setPid(session.id, pid);
+  onSessionsChanged();
+}
+
+/**
+ * Подсказывает, что рядом запущена ещё одна цель.
+ * Показываем один раз на набор сессий: при запуске связки проектов уведомление иначе повторялось бы.
+ */
+async function notifyAboutAlternativeTargets(
+  sessions: DebugSessionRegistry,
+  controller: MonitorController,
+): Promise<void> {
+  const known = sessions.withKnownPid();
+  if (known.length < 2) {
+    return;
+  }
+
+  const selection = translate('Select process');
+  const action = await vscode.window.showInformationMessage(
+    translate(
+      'Monitor Dotnet: {0} .NET processes are running under the debugger, monitoring process {1}.',
+      known.length,
+      controller.pid ?? 0,
+    ),
+    selection,
+  );
+
+  if (action === selection) {
+    await vscode.commands.executeCommand('monitor-dotnet.selectTarget');
   }
 }
 
@@ -238,16 +396,204 @@ async function handleDebugSessionStarted(
 async function handleDebugSessionTerminated(
   session: vscode.DebugSession,
   controller: MonitorController,
+  sessions: DebugSessionRegistry,
+  logger: Logger,
+  getMonitoredSessionId: () => string | undefined,
+  onMonitoringStopped: () => void,
+  onSessionsChanged: () => void,
+): Promise<void> {
+  sessions.remove(session.id);
+  onSessionsChanged();
+
+  if (getMonitoredSessionId() !== session.id) {
+    return;
+  }
+
+  await controller.stop(translate('Session "{0}" finished.', session.name));
+  onMonitoringStopped();
+
+  // В связке могли остаться другие приложения: предлагаем переключиться на них.
+  const remaining = sessions.withKnownPid();
+  if (remaining.length === 0) {
+    return;
+  }
+
+  const selection = translate('Select process');
+  const action = await vscode.window.showInformationMessage(
+    translate('Monitor Dotnet: session "{0}" finished. Other .NET processes are still running.', session.name),
+    selection,
+  );
+
+  if (action === selection) {
+    await vscode.commands.executeCommand('monitor-dotnet.selectTarget');
+  }
+
+  logger.info(translate('Remaining debug sessions: {0}.', remaining.map(item => item.name).join(', ')));
+}
+
+/**
+ * Собирает список целей мониторинга: активные сессии отладки и процессы .NET.
+ * Используется и панелью графиков, и командой выбора процесса.
+ */
+async function collectTargets(
+  sessions: DebugSessionRegistry,
+  controller: MonitorController,
+): Promise<TargetGroups> {
+  const known = sessions.list().map(session => ({
+    id: session.id,
+    name: session.name,
+    type: session.type,
+    pid: session.pid,
+  }));
+
+  let processes: Awaited<ReturnType<typeof listDotnetProcesses>> = [];
+  try {
+    processes = await listDotnetProcesses();
+  } catch {
+    // Список процессов недоступен: показываем хотя бы сессии отладки.
+  }
+
+  return buildTargets(known, processes, controller.pid);
+}
+
+/**
+ * Переключает мониторинг на выбранную цель.
+ * Значение приходит из панели или команды: `session:<id>` либо `pid:<pid>`.
+ */
+async function switchTarget(
+  value: string,
+  controller: MonitorController,
+  sessions: DebugSessionRegistry,
+  getCurrentSettings: () => MonitorSettings,
+  logger: Logger,
+  onMonitoringStarted: (sessionId: string | undefined) => void,
+): Promise<void> {
+  if (value.startsWith('pid:')) {
+    const pid = Number(value.slice('pid:'.length));
+    if (!Number.isInteger(pid) || pid <= 0) {
+      logger.warn(translate('Could not switch monitoring: invalid target {0}.', value));
+      return;
+    }
+
+    await startOnPid(pid, undefined, controller, sessions, logger, onMonitoringStarted);
+    return;
+  }
+
+  if (!value.startsWith('session:')) {
+    logger.warn(translate('Could not switch monitoring: unknown target {0}.', value));
+    return;
+  }
+
+  const sessionId = value.slice('session:'.length);
+  const session = sessions.get(sessionId);
+  if (session === undefined) {
+    logger.warn(translate('Could not switch monitoring: session {0} is no longer running.', sessionId));
+    return;
+  }
+
+  // Процесс сессии обычно известен: он ищется при её старте.
+  let pid = session.pid;
+  if (pid === undefined) {
+    pid = await resolveDebuggeePid(session, getCurrentSettings(), logger);
+    if (pid === undefined) {
+      logger.warn(translate('Could not determine the process for session "{0}".', session.name));
+      void vscode.window.showWarningMessage(
+        translate('Monitor Dotnet: could not determine the process of session "{0}".', session.name),
+      );
+      return;
+    }
+
+    sessions.setPid(sessionId, pid);
+  }
+
+  await startOnPid(pid, sessionId, controller, sessions, logger, onMonitoringStarted);
+}
+
+/**
+ * Запускает мониторинг процесса и запоминает сессию, к которой он относится.
+ * Подпись цели нужна только для журнала: в панели имя процесса приходит от моста.
+ */
+async function startOnPid(
+  pid: number,
+  sessionId: string | undefined,
+  controller: MonitorController,
+  sessions: DebugSessionRegistry,
+  logger: Logger,
+  onMonitoringStarted: (sessionId: string | undefined) => void,
+): Promise<void> {
+  const label = sessionId === undefined ? undefined : sessions.get(sessionId)?.name;
+  const started = await controller.start(pid, label);
+  if (started) {
+    onMonitoringStarted(sessionId);
+    logger.info(translate('Monitoring switched to process {0}.', pid));
+  }
+}
+
+/** Команда выбора процесса: список целей доступен и без панели графиков. */
+async function selectTargetCommand(
+  controller: MonitorController,
+  sessions: DebugSessionRegistry,
+  logger: Logger,
+  getCurrentSettings: () => MonitorSettings,
+  onMonitoringStarted: (sessionId: string | undefined) => void,
   getMonitoredSessionId: () => string | undefined,
 ): Promise<void> {
-  if (getMonitoredSessionId() === session.id) {
-    await controller.stop(translate('Session "{0}" finished.', session.name));
+  const groups = await collectTargets(sessions, controller);
+  if (targetCount(groups) === 0) {
+    void vscode.window.showWarningMessage(translate('Monitor Dotnet: no .NET processes or debug sessions found.'));
+    return;
   }
+
+  const items: TargetQuickPickItem[] = [];
+  const pushGroup = (label: string, entries: readonly TargetGroups['sessions'][number][]): void => {
+    if (entries.length === 0) {
+      return;
+    }
+
+    if (items.length > 0) {
+      items.push({ label: '', kind: vscode.QuickPickItemKind.Separator });
+    }
+
+    items.push({ label, kind: vscode.QuickPickItemKind.Separator });
+    for (const entry of entries) {
+      items.push({
+        label: `$(${entry.kind === 'session' ? 'debug-alt' : 'server-process'}) ${entry.name}`,
+        description: entry.pid === undefined
+          ? translate('process is detected when selected')
+          : `PID ${entry.pid}${entry.isCurrent ? ` · ${translate('monitoring now')}` : ''}`,
+        detail: entry.detail,
+        value: entry.value,
+      });
+    }
+  };
+
+  pushGroup(translate('Debug sessions'), groups.sessions);
+  pushGroup(translate('Other .NET processes'), groups.processes);
+
+  const picked = await vscode.window.showQuickPick(items, {
+    title: translate('Select process to monitor'),
+    placeHolder: getMonitoredSessionId() === undefined
+      ? translate('Monitoring is not running — pick a process')
+      : translate('Current process is marked with a check mark'),
+    matchOnDetail: true,
+  });
+
+  if (picked === undefined || picked.value === undefined) {
+    return;
+  }
+
+  await switchTarget(picked.value, controller, sessions, getCurrentSettings, logger, onMonitoringStarted);
+}
+
+/** Строка списка выбора процесса. */
+interface TargetQuickPickItem extends vscode.QuickPickItem {
+  /** Значение цели: `session:<id>` или `pid:<pid>`. */
+  value?: string;
 }
 
 /** Ищет PID процесса отладки перебором признаков. */
 async function resolveDebuggeePid(
-  session: vscode.DebugSession,
+  session: DebugSessionSnapshot,
   settings: MonitorSettings,
   logger: Logger,
 ): Promise<number | undefined> {
@@ -255,10 +601,15 @@ async function resolveDebuggeePid(
   const explicitPid = pidFromSessionConfiguration(session);
   const sessionStartMs = Date.now();
 
+  // Подсказки берём из всех полей, которыми разные отладчики задают цель:
+  // coreclr указывает сборку в `program`, C# Dev Kit — проект в `projectPath`,
+  // расширение Aspire — каталог или файл проекта AppHost в `program`.
   const hints = {
     processId: explicitPid,
-    program: typeof configuration.program === 'string' ? configuration.program : undefined,
-    cwd: typeof configuration.cwd === 'string' ? configuration.cwd : undefined,
+    program: stringField(configuration, 'program'),
+    projectPath: stringField(configuration, 'projectPath'),
+    // Рабочий каталог: из конфигурации, а если его нет — из папки рабочей области.
+    cwd: stringField(configuration, 'cwd') ?? session.workspaceFolder,
     processNameFilter: settings.processNameFilter.length > 0 ? settings.processNameFilter : undefined,
     sessionStartMs,
     excludePids: [],
@@ -304,9 +655,15 @@ async function resolveDebuggeePid(
   return undefined;
 }
 
+/** Строковое поле из конфигурации запуска: другие типы (числа, объекты) не подходят. */
+function stringField(configuration: Record<string, unknown>, name: string): string | undefined {
+  const value = configuration[name];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 /** PID из конфигурации: используется при подключении к уже запущенному процессу. */
-function pidFromSessionConfiguration(session: vscode.DebugSession): number | undefined {
-  const value = session.configuration?.processId;
+function pidFromSessionConfiguration(session: DebugSessionSnapshot): number | undefined {
+  const value = session.configuration.processId;
   if (typeof value === 'number' && value > 0) {
     return value;
   }
@@ -326,7 +683,7 @@ async function startMonitoringCommand(
 ): Promise<void> {
   const activeSession = vscode.debug.activeDebugSession;
   if (activeSession !== undefined && DOTNET_DEBUG_TYPES.has(activeSession.type)) {
-    const pid = await resolveDebuggeePid(activeSession, getSettings(), logger);
+    const pid = await resolveDebuggeePid(snapshotFromSession(activeSession), getSettings(), logger);
     if (pid !== undefined) {
       await controller.start(pid, activeSession.name);
       return;
@@ -380,6 +737,65 @@ function requirePid(controller: MonitorController): number | undefined {
   }
 
   return pid;
+}
+
+/** Интервал проблемы, запрошенный из дерева проблем или из списка панели. */
+export interface IssueIntervalRequest {
+  fromMs: number;
+  toMs: number;
+  /** Идентификатор проблемы: по нему находится сохранённый интервал. */
+  issueId?: string;
+  /** Процесс, в котором проблема найдена. Без него берётся мониторимый сейчас. */
+  processKey?: string;
+  processLabel?: string;
+}
+
+/**
+ * Показывает интервал найденной проблемы.
+ *
+ * Пока данные интервала есть у монитора, он выделяется на живых графиках. Если ряд уже
+ * ушёл вперёд или мониторится другой процесс, показывается сохранённый интервал: без него
+ * выделение пришлось бы на пустое место.
+ */
+async function revealIssueInterval(
+  request: IssueIntervalRequest,
+  state: MonitorState,
+  issues: IssueStore,
+  panel: PerformanceChartPanel,
+): Promise<void> {
+  const { fromMs, toMs } = request;
+  const processKey = request.processKey ?? currentProcessKey(state);
+  const liveRange = state.range;
+  const coveredByLive = processKey !== undefined &&
+    issues.isCurrentProcess(processKey) &&
+    liveRange !== undefined &&
+    liveRange.fromMs <= fromMs &&
+    liveRange.toMs >= toMs;
+
+  if (coveredByLive) {
+    await panel.selectInterval(fromMs, toMs);
+    return;
+  }
+
+  const slice = processKey !== undefined && request.issueId !== undefined
+    ? issues.slice(processKey, request.issueId)
+    : undefined;
+  if (slice === undefined || slice.points.length === 0) {
+    // Показывать нечего: без точек графики остались бы пустыми.
+    void vscode.window.showInformationMessage(translate(
+      'Monitor Dotnet: the points of this interval are no longer available — run monitoring again to analyse it.',
+    ));
+    return;
+  }
+
+  const label = request.processLabel ?? (processKey === undefined ? '' : issues.label(processKey) ?? processKey);
+  await panel.showIssueSlice(label, slice);
+}
+
+/** Ключ процесса, данные которого сейчас на графиках. */
+function currentProcessKey(state: MonitorState): string | undefined {
+  const hello = state.hello;
+  return hello === undefined ? undefined : `pid:${hello.pid}`;
 }
 
 function delay(milliseconds: number): Promise<void> {

@@ -113,6 +113,18 @@ export class MonitorState {
     return this.series.at(-1);
   }
 
+  /**
+   * Границы собранного ряда или undefined, если данных нет.
+   * По ним видно, покрывают ли живые данные выделенный интервал.
+   */
+  get range(): { fromMs: number; toMs: number } | undefined {
+    const first = this.series[0];
+    const last = this.series.at(-1);
+    return first === undefined || last === undefined
+      ? undefined
+      : { fromMs: first.timestampMs, toMs: last.timestampMs };
+  }
+
   /** Признак активного мониторинга (есть свежие данные). */
   get isActive(): boolean {
     return this._status === 'running' || this._status === 'connecting';

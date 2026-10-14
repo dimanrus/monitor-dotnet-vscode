@@ -3,28 +3,37 @@
  *
  * Дерево показывает те же интервалы, что и список панели графиков, но работает без неё:
  * нажатие на узел выделяет интервал на графиках и раскрывает саму панель.
+ *
+ * Проблемы копятся по процессам, поэтому дерево их группирует: видно, к какому процессу
+ * относится интервал. Выделить на графиках можно только проблемы процесса, чьи данные
+ * на графиках сейчас; интервалы остальных остаются в дереве как история прогона.
  */
 
 import * as vscode from 'vscode';
-import type { ChartIssue } from '../core/chartData.ts';
-import { buildIssueNodes, type IssueNodeData } from '../core/issueNodes.ts';
+import { buildIssueTree, type IssueEntryData, type IssueProcessNodeData, type IssueTreeNodeData } from '../core/issueNodes.ts';
 import { issuesSignature } from '../core/issueSource.ts';
+import type { IssueProcess } from '../core/issueStore.ts';
 import { translate } from '../core/locale.ts';
 import type { MonitorState } from '../core/monitorState.ts';
 
-/** Узел дерева: либо проблема, либо строка-пояснение, когда проблем нет. */
-export type IssuesNode =
-  | { kind: 'issue'; data: IssueNodeData }
-  | { kind: 'empty'; label: string; hint: string };
+/** Строка-пояснение, когда проблем нет вовсе. */
+export interface EmptyNode {
+  kind: 'empty';
+  label: string;
+  hint: string;
+}
+
+/** Узел дерева: процесс с проблемами, отдельная проблема или строка-пояснение. */
+export type IssuesNode = EmptyNode | IssueTreeNodeData;
 
 /** Как часто дерево проверяет, изменился ли список проблем. */
 const REFRESH_INTERVAL_MS = 2000;
 
-/** Всё, что нужно дереву: состояние мониторинга, поиск проблем и признак включённости. */
+/** Всё, что нужно дереву: состояние мониторинга, проблемы по процессам и признак включённости. */
 export interface IssuesTreeOptions {
   state: MonitorState;
-  /** Возвращает найденные проблемы (пустой список, если поиск выключен). */
-  collect: () => ChartIssue[];
+  /** Возвращает процессы с найденными проблемами, текущий первым. */
+  listGroups: () => IssueProcess[];
   /** Включён ли поиск проблем в настройках. */
   isEnabled: () => boolean;
 }
@@ -34,16 +43,15 @@ export class IssuesTreeProvider implements vscode.TreeDataProvider<IssuesNode>, 
   private readonly timer: NodeJS.Timeout;
   /** Отписка от изменений состояния: монитор сообщает о каждой принятой точке. */
   private readonly stopStateChange: () => void;
-  private readonly collect: () => ChartIssue[];
+  private readonly listGroups: () => IssueProcess[];
   private readonly isEnabled: () => boolean;
 
-  private issues: ChartIssue[] = [];
-  private nodes: IssueNodeData[] = [];
+  private nodes: IssuesNode[] = [];
   /** Отпечаток прошлого состояния: дерево обновляется только при изменениях. */
   private signature = '';
 
   constructor(options: IssuesTreeOptions) {
-    this.collect = options.collect;
+    this.listGroups = options.listGroups;
     this.isEnabled = options.isEnabled;
     this.stopStateChange = options.state.onDidChange(() => this.refresh());
     this.timer = setInterval(() => this.refresh(), REFRESH_INTERVAL_MS);
@@ -53,63 +61,44 @@ export class IssuesTreeProvider implements vscode.TreeDataProvider<IssuesNode>, 
 
   readonly onDidChangeTreeData = this.emitter.event;
 
-  /** Текущий список проблем: по нему находит интервал команда перехода к графику. */
-  list(): readonly ChartIssue[] {
-    return this.issues;
-  }
-
   getTreeItem(element: IssuesNode): vscode.TreeItem {
-    if (element.kind === 'empty') {
-      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
-      item.iconPath = new vscode.ThemeIcon('check');
-      item.tooltip = element.hint;
-      item.contextValue = 'issueEmpty';
-      return item;
+    switch (element.kind) {
+      case 'empty':
+        return this.emptyItem(element);
+      case 'process':
+        return this.processItem(element.process);
+      default:
+        return this.issueItem(element.entry);
     }
-
-    const item = new vscode.TreeItem(element.data.label, vscode.TreeItemCollapsibleState.None);
-    item.id = element.data.id;
-    item.description = element.data.description;
-    item.tooltip = element.data.tooltip;
-    item.contextValue = `issue.${element.data.severity}`;
-    item.iconPath = new vscode.ThemeIcon(
-      element.data.iconId,
-      element.data.colorId === null ? undefined : new vscode.ThemeColor(element.data.colorId),
-    );
-    // Нажатие выделяет интервал на графиках — та же логика, что у списка в панели графиков.
-    item.command = {
-      command: 'monitor-dotnet.selectIssueInterval',
-      title: translate('Show on charts'),
-      arguments: [{ fromMs: element.data.fromMs, toMs: element.data.toMs }],
-    };
-
-    return item;
   }
 
   getChildren(element?: IssuesNode): IssuesNode[] {
-    if (element !== undefined) {
-      return [];
+    if (element === undefined) {
+      return this.nodes;
     }
 
-    if (this.nodes.length > 0) {
-      return this.nodes.map(data => ({ kind: 'issue' as const, data }));
-    }
-
-    return [{ kind: 'empty', label: this.emptyLabel(), hint: this.emptyHint() }];
+    return element.kind === 'process'
+      ? element.process.entries.map(entry => ({ kind: 'entry' as const, entry }))
+      : [];
   }
 
   /** Пересчитывает проблемы и обновляет дерево, если список изменился. */
   refresh(): void {
     const enabled = this.isEnabledNow();
-    const issues = enabled ? this.collect() : [];
-    const signature = `${enabled ? 'on' : 'off'}|${issuesSignature(issues)}`;
+    const groups = enabled ? this.listGroups() : [];
+    // Процесс и признак «мониторится сейчас» входят в отпечаток: при переключении
+    // группы и их порядок меняются, а состав проблем при этом может и не измениться.
+    const signature = `${enabled ? 'on' : 'off'}|${groups
+      .map(group => `${group.key}${group.isCurrent ? '*' : ''}=${issuesSignature(group.issues)}`)
+      .join(';')}`;
     if (signature === this.signature) {
       return;
     }
 
     this.signature = signature;
-    this.issues = issues;
-    this.nodes = buildIssueNodes(issues);
+    this.nodes = groups.length === 0
+      ? [{ kind: 'empty', label: this.emptyLabel(), hint: this.emptyHint() }]
+      : buildIssueTree(groups);
     this.emitter.fire(undefined);
   }
 
@@ -117,6 +106,58 @@ export class IssuesTreeProvider implements vscode.TreeDataProvider<IssuesNode>, 
     clearInterval(this.timer);
     this.stopStateChange();
     this.emitter.dispose();
+  }
+
+  /** Узел проблемы: нажатие выделяет интервал на графиках. */
+  private issueItem(entry: IssueEntryData): vscode.TreeItem {
+    const { data } = entry;
+    const item = new vscode.TreeItem(data.label, vscode.TreeItemCollapsibleState.None);
+    // Идентификаторы уникальны внутри процесса, поэтому ключ процесса входит в идентификатор узла.
+    item.id = `${entry.processKey}:${data.id}`;
+    item.description = data.description;
+    item.tooltip = data.tooltip;
+    // У проблем другого процесса действие «показать на графиках» скрыто: его данных там уже нет.
+    item.contextValue = entry.isCurrentProcess ? `issue.${data.severity}` : `issueHistory.${data.severity}`;
+    item.iconPath = new vscode.ThemeIcon(
+      data.iconId,
+      data.colorId === null ? undefined : new vscode.ThemeColor(data.colorId),
+    );
+    item.command = {
+      command: 'monitor-dotnet.selectIssueInterval',
+      title: translate('Show on charts'),
+      arguments: [{
+        issueId: data.id,
+        fromMs: data.fromMs,
+        toMs: data.toMs,
+        processKey: entry.processKey,
+        processLabel: entry.processLabel,
+      }],
+    };
+
+    return item;
+  }
+
+  /** Узел процесса: раскрыт у того процесса, данные которого сейчас на графиках. */
+  private processItem(process: IssueProcessNodeData): vscode.TreeItem {
+    const item = new vscode.TreeItem(
+      process.label,
+      process.expanded ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
+    );
+    item.id = `process:${process.key}`;
+    item.description = process.description;
+    item.tooltip = process.tooltip;
+    item.contextValue = 'issueProcess';
+    item.iconPath = new vscode.ThemeIcon('server-process');
+    return item;
+  }
+
+  /** Строка-пояснение вместо списка проблем. */
+  private emptyItem(element: EmptyNode): vscode.TreeItem {
+    const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
+    item.iconPath = new vscode.ThemeIcon('check');
+    item.tooltip = element.hint;
+    item.contextValue = 'issueEmpty';
+    return item;
   }
 
   /** Текст заглушки: зависит от того, выключен ли поиск проблем. */

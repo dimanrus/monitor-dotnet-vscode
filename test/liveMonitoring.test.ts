@@ -61,9 +61,10 @@ function buildSample(): void {
   assert.equal(result.status, 0, `сборка примера не удалась:\n${result.stdout}\n${result.stderr}`);
 }
 
-/** Запускает приложение в режиме нагрузки и дожидается его PID из стандартного вывода. */
-async function startSample(): Promise<{ child: ChildProcess; pid: number }> {
-  const child = spawn(sampleHost, ['--stress'], { cwd: sampleDirectory, stdio: ['ignore', 'pipe', 'pipe'] });
+/** Запускает приложение и дожидается его PID из стандартного вывода. */
+async function startSample(stress = true): Promise<{ child: ChildProcess; pid: number }> {
+  const args = stress ? ['--stress'] : [];
+  const child = spawn(sampleHost, args, { cwd: sampleDirectory, stdio: ['ignore', 'pipe', 'pipe'] });
 
   const pid = await new Promise<number>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('приложение не сообщило PID за 20 с')), 20_000);
@@ -149,35 +150,82 @@ function dataFrom(messages: readonly SentMessage[]): {
 }
 
 
+/** Узел дерева проблем, как его видит тест. */
+interface TreeNode {
+  kind: string;
+  entry?: {
+    data: { id: string; label: string };
+    processKey: string;
+    processLabel: string;
+    isCurrentProcess: boolean;
+  };
+  process?: { key: string; label: string; description: string; expanded: boolean };
+}
+
+/** Дерево проблем, как его видит тест. */
+interface IssuesTree {
+  getChildren(element?: TreeNode): TreeNode[];
+  getTreeItem(node: TreeNode): { contextValue?: string; command?: { command: string; arguments?: unknown[] } };
+}
+
+/** Провайдер нативного дерева проблем. */
+function issuesTree(extension: LoadedExtension): IssuesTree {
+  const provider = extension.registry.treeProviders.get('monitor-dotnet.issues') as IssuesTree | undefined;
+  assert.ok(provider !== undefined, 'провайдер дерева проблем не зарегистрирован');
+  return provider;
+}
+
+/** Проблемы из дерева: и плоский список, и проблемы внутри групп процессов. */
+function issueEntries(provider: IssuesTree): Array<{ node: TreeNode; entry: NonNullable<TreeNode['entry']> }> {
+  const entries: Array<{ node: TreeNode; entry: NonNullable<TreeNode['entry']> }> = [];
+  for (const node of provider.getChildren()) {
+    if (node.entry !== undefined) {
+      entries.push({ node, entry: node.entry });
+      continue;
+    }
+
+    for (const child of provider.getChildren(node)) {
+      if (child.entry !== undefined) {
+        entries.push({ node: child, entry: child.entry });
+      }
+    }
+  }
+
+  return entries;
+}
+
+/** Ждёт в дереве проблем узел, удовлетворяющий условию. */
+async function waitForEntry(
+  provider: IssuesTree,
+  description: string,
+  predicate: (entry: NonNullable<TreeNode['entry']>) => boolean,
+): Promise<{ node: TreeNode; entry: NonNullable<TreeNode['entry']> }> {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const found = issueEntries(provider).find(candidate => predicate(candidate.entry));
+    if (found !== undefined) {
+      return found;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  throw new Error(`не дождались: ${description}`);
+}
+
 /** Проверяет нативное дерево проблем и переход с него на графики. */
 async function verifyIssuesTree(
   extension: LoadedExtension,
   view: StubWebviewView,
   expectedId: string,
 ): Promise<void> {
-  const provider = extension.registry.treeProviders.get('monitor-dotnet.issues') as
-    | { getChildren(): unknown[]; getTreeItem(node: unknown): { command?: { command: string; arguments?: unknown[] } } }
-    | undefined;
-  assert.ok(provider !== undefined, 'провайдер дерева проблем не зарегистрирован');
-
-  // Дерево пересчитывается по таймеру и по изменению состояния: даём ему минуту на уверенный результат.
-  const deadline = Date.now() + 60_000;
-  let nodes: Array<{ kind: string; data?: { id: string } }> = [];
-  while (Date.now() < deadline) {
-    nodes = provider.getChildren() as Array<{ kind: string; data?: { id: string } }>;
-    if (nodes.some(node => node.kind === 'issue')) {
-      break;
-    }
-
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-
-  const issueNode = nodes.find(node => node.kind === 'issue');
-  assert.ok(issueNode !== undefined, 'в дереве проблем нет ни одного узла с проблемой');
-  assert.equal(issueNode.data?.id, expectedId, 'дерево показывает другую проблему');
+  const provider = issuesTree(extension);
+  const found = await waitForEntry(provider, 'проблема текущего процесса в дереве', entry => entry.data.id === expectedId);
+  assert.ok(found.entry.isCurrentProcess, 'проблема текущего процесса помечена как история');
 
   // Нажатие на узел должно отправить панели запрос на выделение того же интервала.
-  const item = provider.getTreeItem(issueNode);
+  const item = provider.getTreeItem(found.node);
+  assert.match(String(item.contextValue), /^issue\./, 'у проблемы текущего процесса нет действия «показать на графиках»');
   assert.equal(item.command?.command, 'monitor-dotnet.selectIssueInterval');
   const range = item.command?.arguments?.[0] as { fromMs: number; toMs: number } | undefined;
   assert.ok(range !== undefined, 'у команды перехода нет интервала');
@@ -196,6 +244,90 @@ async function verifyIssuesTree(
   );
 }
 
+/**
+ * Проверяет переключение на другой процесс: проблемы прошлого процесса остаются в дереве
+ * как история, а вместе с ними и точки интервалов — иначе выделять на графиках было бы нечего.
+ */
+async function verifyProcessSwitch(
+  extension: LoadedExtension,
+  view: StubWebviewView,
+  previousPid: number,
+  nextPid: number,
+): Promise<void> {
+  view.webview.receive({ type: 'selectTarget', target: `pid:${nextPid}` });
+  await waitFor(
+    'переключение мониторинга на второй процесс',
+    // Тексты журнала локализованы, поэтому ждём запуск моста по аргументам: они не переводятся.
+    () => extension.registry.logLines.some(line => line.includes(`--pid ${nextPid}`)),
+    COLLECTION_TIMEOUT_MS,
+  );
+
+  // Панель показывает данные нового процесса, поэтому список проблем у неё пуст.
+  await waitFor('очистка списка проблем панели', () => {
+    const snapshot = [...view.webview.messages].reverse().find(message => message.type === 'snapshot');
+    const issues = snapshot?.issues as unknown[] | undefined;
+    return Array.isArray(issues) && issues.length === 0;
+  }, COLLECTION_TIMEOUT_MS);
+
+  // В дереве проблема прошлого процесса осталась и лежит в группе своего процесса.
+  const provider = issuesTree(extension);
+  const history = await waitForEntry(provider, 'история прошлого процесса в дереве', entry => !entry.isCurrentProcess);
+  assert.equal(history.entry.processKey, `pid:${previousPid}`, 'история относится не к прошлому процессу');
+  assert.ok(
+    history.entry.processLabel.endsWith(`(PID ${previousPid})`),
+    `подпись процесса потеряла PID: «${history.entry.processLabel}», ожидался PID ${previousPid}`,
+  );
+
+  const groups = provider.getChildren().filter(node => node.kind === 'process');
+  assert.equal(groups.length, 1, 'проблемы прошлого процесса не сгруппированы');
+  assert.equal(groups[0].process?.expanded, false, 'группа прошлого процесса раскрыта как текущая');
+  assert.ok(
+    !String(groups[0].process?.description).includes('мониторится сейчас'),
+    'прошлый процесс помечен как мониторимый',
+  );
+
+  // Нажатие на проблему другого процесса: на живых графиках его данных уже нет,
+  // поэтому панель обязана получить сохранённые точки интервала.
+  const item = provider.getTreeItem(history.node);
+  assert.match(String(item.contextValue), /^issueHistory\./, 'у истории осталось действие «показать на графиках»');
+  const command = item.command?.arguments?.[0] as { fromMs: number; toMs: number } | undefined;
+  assert.ok(command !== undefined, 'у команды перехода нет интервала');
+
+  const before = view.webview.messages.length;
+  await extension.registry.commandHandlers.get('monitor-dotnet.selectIssueInterval')?.(item.command?.arguments?.[0]);
+
+  const slice = [...view.webview.messages.slice(before)]
+    .reverse()
+    .find(message => message.type === 'issueSlice') as
+    | { issue?: { id?: string }; points?: Array<{ t: number }>; gcEvents?: unknown[]; processLabel?: string; fromMs?: number; toMs?: number; viewFromMs?: number; viewToMs?: number }
+    | undefined;
+  assert.ok(slice !== undefined, 'панель не получила сохранённый интервал');
+  assert.equal(
+    view.webview.messages.slice(before).filter(message => message.type === 'selectRange').length,
+    0,
+    'панель попыталась выделить интервал чужого процесса на живых графиках',
+  );
+
+  const points = slice.points ?? [];
+  assert.ok(points.length >= 2, `в сохранённом интервале нет точек: ${points.length}`);
+  // Точки сохранены с запасом по краям, поэтому интервал проблемы должен быть покрыт целиком.
+  assert.ok(
+    points[0].t <= (slice.fromMs ?? 0) && points[points.length - 1].t >= (slice.toMs ?? 0),
+    `точки не покрывают интервал проблемы: ${JSON.stringify(points.map(point => point.t))} при ${String(slice.fromMs)}—${String(slice.toMs)}`,
+  );
+  // Видимый диапазон включает интервал и целиком покрыт точками: иначе переход
+  // к проблеме показал бы пустое место вместо линий.
+  const viewFrom = slice.viewFromMs ?? 0;
+  const viewTo = slice.viewToMs ?? 0;
+  assert.ok(viewFrom <= (slice.fromMs ?? 0) && viewTo >= (slice.toMs ?? 0), 'интервал проблемы не попал в видимый диапазон');
+  assert.ok(
+    points[0].t <= viewFrom && points[points.length - 1].t >= viewTo,
+    `видимый диапазон шире сохранённых точек: ${viewFrom}—${viewTo} при ${points[0].t}—${points[points.length - 1].t}`,
+  );
+  assert.equal(slice.issue?.id, history.entry.data.id, 'панели передан не тот интервал');
+  assert.ok(String(slice.processLabel).includes(`PID ${previousPid}`), 'панель не знает, чей интервал показывать');
+}
+
 test(
   'живое приложение под нагрузкой: данные доходят, перегрузка CPU распознаётся',
   { skip: !enabled, timeout: 10 * 60_000 },
@@ -203,6 +335,8 @@ test(
     buildSample();
     const bundlePath = await buildExtension();
     const { child, pid } = await startSample();
+    // Второй экземпляр нужен для проверки переключения процесса: без нагрузки своих проблем он не даст.
+    const second = await startSample(false);
 
     let extension: LoadedExtension | undefined;
 
@@ -273,9 +407,14 @@ test(
       assert.equal(saturation.title, 'Процессор загружен полностью', 'заголовок проблемы не локализован');
 
       await verifyIssuesTree(extension, view, String(saturation.id));
+
+      // Переключение на другой процесс: найденные проблемы остаются в дереве как история,
+      // но с графиков уходят — там уже данные другого процесса.
+      await verifyProcessSwitch(extension, view, pid, second.pid);
     } finally {
       extension?.deactivate();
       child.kill('SIGTERM');
+      second.child.kill('SIGTERM');
     }
   },
 );

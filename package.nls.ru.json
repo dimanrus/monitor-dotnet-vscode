@@ -10,6 +10,7 @@
   "command.focusPerformance.title": "Показать графики",
   "command.openSettings.title": "Открыть настройки",
   "command.selectIssueInterval.title": "Показать интервал проблемы на графиках",
+  "command.selectTarget.title": "Выбрать процесс для мониторинга…",
   "command.startMonitoring.title": "Запустить мониторинг",
   "command.startProfiling.title": "Начать профилирование (dotnet-trace)",
   "command.stopMonitoring.title": "Остановить мониторинг",

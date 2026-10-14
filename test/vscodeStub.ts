@@ -21,6 +21,13 @@ export interface VscodeStubRegistry {
   commandHandlers: Map<string, (...args: unknown[]) => unknown>;
   /** Строки, записанные расширением в канал вывода. */
   logLines: string[];
+  /** Тексты уведомлений, показанных через `window.showInformationMessage` и предупреждения. */
+  notifications: string[];
+  /** Эмуляция событий отладки: с их помощью тесты запускают обработку сессии отладки. */
+  debugSessions: {
+    start: (session: unknown) => void;
+    terminate: (session: unknown) => void;
+  };
 }
 
 /** Сообщение, отправленное расширением в webview. */
@@ -100,6 +107,11 @@ export function createVscodeStub(
     disposables: 0,
     commandHandlers: new Map(),
     logLines: [],
+    notifications: [],
+    debugSessions: {
+      start: () => undefined,
+      terminate: () => undefined,
+    },
   };
 
   class Disposable {
@@ -201,6 +213,7 @@ export function createVscodeStub(
     ThemeIcon,
     ThemeColor,
     TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 },
+    QuickPickItemKind: { Separator: -1, Default: 0 },
     StatusBarAlignment: { Left: 1, Right: 2 },
     ProgressLocation: { SourceControl: 1, Window: 10, Notification: 15 },
     ViewColumn: { Active: -1, One: 1 },
@@ -241,9 +254,18 @@ export function createVscodeStub(
         registry.webviewViews.set(id, provider);
         return disposable();
       },
-      showInformationMessage: async () => undefined,
-      showWarningMessage: async () => undefined,
-      showErrorMessage: async () => undefined,
+      showInformationMessage: async (message: string) => {
+        registry.notifications.push(message);
+        return undefined;
+      },
+      showWarningMessage: async (message: string) => {
+        registry.notifications.push(message);
+        return undefined;
+      },
+      showErrorMessage: async (message: string) => {
+        registry.notifications.push(message);
+        return undefined;
+      },
       showQuickPick: async (items: readonly { label?: string; description?: string }[]) =>
         options.quickPickSelector?.(items),
       showInputBox: async () => undefined,
@@ -262,8 +284,14 @@ export function createVscodeStub(
     },
     debug: {
       activeDebugSession: undefined,
-      onDidStartDebugSession: () => disposable(),
-      onDidTerminateDebugSession: () => disposable(),
+      onDidStartDebugSession: (listener: (session: unknown) => void) => {
+        registry.debugSessions.start = listener;
+        return disposable();
+      },
+      onDidTerminateDebugSession: (listener: (session: unknown) => void) => {
+        registry.debugSessions.terminate = listener;
+        return disposable();
+      },
     },
     env: {
       language: options.language ?? 'en',

@@ -26,6 +26,13 @@ const IGNORED_COMMAND_FRAGMENTS = [
   'dotnet-dump',
   'dotnet-gcdump',
   'dotnet-stack',
+  // Инфраструктура Aspire: командная строка, дашборд и оркестратор не являются целью отладки.
+  'dotnet/tools/aspire',
+  'dotnet\\tools\\aspire',
+  'Aspire.Dashboard',
+  'aspire.cli',
+  '/dcp/dcp',
+  '\\dcp\\dcp.exe',
   // Инфраструктура редактора и компиляторов.
   'vscode-server',
   'extensionHost',
@@ -62,6 +69,9 @@ export async function listDotnetProcesses(): Promise<ProcessCandidate[]> {
 /**
  * Определяет, является ли процесс приложением .NET.
  * Проверки идут от самой дешёвой к самой дорогой.
+ *
+ * Сборку ищем только в начале командной строки: иначе под фильтр попадали любые процессы,
+ * которые просто упоминают путь к .dll в аргументах (например, оболочка, запускающая команду).
  */
 export function isDotnetCandidate(
   candidate: ProcessCandidate,
@@ -77,8 +87,8 @@ export function isDotnetCandidate(
     return true;
   }
 
-  // Сборка указана в командной строке напрямую.
-  if (commandLine.toLowerCase().includes('.dll')) {
+  // Сборка указана в командной строке напрямую: `dotnet exec App.dll` или `App.dll`.
+  if (commandTokens(commandLine).slice(0, 2).some(token => token.toLowerCase().endsWith('.dll'))) {
     return true;
   }
 
@@ -89,6 +99,14 @@ export function isDotnetCandidate(
 
   // Некоторые приложения запускаются с суффиксом .exe даже вне Windows-терминологии.
   return executableName.endsWith('.exe') && candidate.name.toLowerCase() !== executableName;
+}
+
+/** Первые токены командной строки без кавычек: нужны для проверки того, что запускается. */
+function commandTokens(commandLine: string): string[] {
+  return commandLine
+    .trim()
+    .split(/\s+/)
+    .map(token => token.replace(/^"|"$/g, ''));
 }
 
 /** Служебные процессы мониторинга и редактора отбрасываем. */

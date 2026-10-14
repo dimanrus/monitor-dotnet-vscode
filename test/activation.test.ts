@@ -95,6 +95,7 @@ test('активация регистрирует команды, панели �
     'monitor-dotnet.stopMonitoring',
     'monitor-dotnet.attachToProcess',
     'monitor-dotnet.selectIssueInterval',
+    'monitor-dotnet.selectTarget',
     'monitor-dotnet.focusPerformance',
     'monitor-dotnet.clearData',
     'monitor-dotnet.collectCallStack',
@@ -130,6 +131,16 @@ test('панель графиков отдаёт разметку с полит�
   assert.match(view.webview.html, /id="charts"/);
   // Список найденных проблем: пока проблем нет — секция скрыта.
   assert.match(view.webview.html, /id="issues" hidden/);
+  // Выпадающий список целей мониторинга в шапке панели.
+  assert.match(view.webview.html, /id="target"/);
+  // Кнопки паузы и сброса выделения стоят справа от названия процесса и выше списка целей:
+  // иначе в узкой панели они не помещаются рядом с выбором процесса.
+  const pauseIndex = view.webview.html.indexOf('id="pause"');
+  const resetIndex = view.webview.html.indexOf('id="reset-selection"');
+  const targetIndex = view.webview.html.indexOf('id="target"');
+  assert.ok(pauseIndex > -1 && resetIndex > -1 && targetIndex > -1, 'в шапке нет кнопок управления или выбора процесса');
+  assert.ok(pauseIndex < targetIndex && resetIndex < targetIndex, 'кнопки управления оказались ниже выбора процесса');
+  assert.match(view.webview.html, /class="process-head"[\s\S]*id="pause"/, 'название процесса и кнопки не в одной строке');
 
   // Панель сообщает о готовности — расширение обязано ответить снимком данных.
   view.webview.receive({ type: 'ready' });

@@ -25,6 +25,11 @@
   --chart-issue-critical: var(--vscode-editorError-foreground, #f14c4c);
 }
 
+/* Атрибут hidden должен побеждать display из правил ниже: иначе скрытая секция осталась бы видна. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   height: 100%;
@@ -42,18 +47,29 @@ body {
   flex-direction: column;
 }
 
-/* Шапка: сведения о процессе и кнопки управления. */
+/* Шапка: строка с названием процесса и кнопками, ниже — подробности и выбор процесса. */
 header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--chart-grid);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* Название процесса и кнопки управления в одной строке: кнопки прижаты к правому краю. */
+.process-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--chart-grid);
-  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .process-name {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -68,8 +84,11 @@ header {
   text-overflow: ellipsis;
 }
 
+/* Кнопки не должны вылезать за край узкой панели: при нехватке места они переносятся. */
 .controls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
   flex: 0 0 auto;
 }
@@ -93,6 +112,29 @@ button[aria-pressed='true'] {
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
   border-color: var(--vscode-button-background);
+}
+
+/* Полоса о показанном сохранённом интервале: объясняет, чьи данные на графиках. */
+.archive {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 10px 4px;
+  border: 1px solid var(--chart-selection-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  flex: 0 0 auto;
+}
+
+.archive-text {
+  color: var(--chart-text);
+  font-size: 0.9em;
+  min-width: 0;
+}
+
+.archive button {
+  flex: 0 0 auto;
 }
 
 /* Плитки с текущими значениями. */
@@ -187,6 +229,36 @@ button[aria-pressed='true'] {
 .issue-details {
   color: var(--chart-text);
   font-size: 0.85em;
+}
+
+/* Список целей мониторинга: сессии отладки и процессы .NET. */
+.target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.target-label {
+  color: var(--chart-text);
+  flex: 0 0 auto;
+}
+
+.target select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-dropdown-foreground, inherit);
+  background: var(--vscode-dropdown-background, transparent);
+  border: 1px solid var(--vscode-dropdown-border, var(--chart-grid));
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+.target select:disabled {
+  opacity: 0.6;
 }
 
 /* Область графиков прокручивается: графиков может быть больше, чем помещается. */

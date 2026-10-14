@@ -22,6 +22,8 @@ export interface WebviewStrings {
   buttonPause: string;
   buttonResume: string;
   buttonResetSelection: string;
+  buttonBackToLive: string;
+  archiveHint: string;
   processNotSelected: string;
   waitingForData: string;
   statusRunning: string;
@@ -29,6 +31,7 @@ export interface WebviewStrings {
   statusStopped: string;
   statusFailed: string;
   statusIdle: string;
+  statusArchive: string;
   hintStart: string;
   tileCpu: string;
   tilePrivateMemory: string;
@@ -48,6 +51,10 @@ export interface WebviewStrings {
   tooltipGc: string;
   issuesTitle: string;
   issuesHint: string;
+  targetLabel: string;
+  targetSessions: string;
+  targetProcesses: string;
+  targetEmpty: string;
 }
 
 /**
@@ -69,6 +76,8 @@ export const WEBVIEW_SOURCE_STRINGS: Record<keyof WebviewStrings, string> = {
   buttonPause: 'Pause',
   buttonResume: 'Resume',
   buttonResetSelection: 'Reset selection',
+  buttonBackToLive: 'Back to live data',
+  archiveHint: 'Archive: an interval of {0}; the live charts no longer show it.',
   processNotSelected: 'No process selected',
   waitingForData: 'Waiting for data…',
   statusRunning: 'monitoring is running',
@@ -76,6 +85,7 @@ export const WEBVIEW_SOURCE_STRINGS: Record<keyof WebviewStrings, string> = {
   statusStopped: 'monitoring stopped',
   statusFailed: 'monitoring failed',
   statusIdle: 'monitoring is not running',
+  statusArchive: 'showing a saved interval',
   hintStart: 'Start debugging a .NET application or run the "Monitor Dotnet: Start Monitoring" command.',
   tileCpu: 'CPU',
   tilePrivateMemory: 'Private memory',
@@ -95,6 +105,10 @@ export const WEBVIEW_SOURCE_STRINGS: Record<keyof WebviewStrings, string> = {
   tooltipGc: 'GC gen{0}: {1}',
   issuesTitle: 'Detected issues',
   issuesHint: 'Click an issue to select its time range on the charts.',
+  targetLabel: 'Process',
+  targetSessions: 'Debug sessions',
+  targetProcesses: 'Other .NET processes',
+  targetEmpty: 'No .NET processes found',
 };
 
 /** Тексты по умолчанию (английские). */

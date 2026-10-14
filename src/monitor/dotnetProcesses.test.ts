@@ -64,3 +64,29 @@ test('служебные процессы мониторинга и редакт
 
   assert.equal(isIgnored(candidate('/home/user/app/bin/Debug/net10.0/SampleApp')), false);
 });
+
+test('оболочка, которая лишь упоминает путь к .dll, не считается процессом .NET (регрессия)', () => {
+  // Случай из живой проверки: `bash -c` с текстом команды в аргументах попадал в кандидаты
+  // и мог обыграть настоящую цель при выборе «самого позднего» процесса.
+  assert.equal(
+    isDotnetCandidate(candidate('/bin/bash -c node probe.ts --program /repo/App/bin/Debug/net10.0/App.dll'), noAssemblies),
+    false,
+  );
+  assert.equal(
+    isDotnetCandidate(candidate('/usr/lib/code/code --folder-uri file:///repo /repo/App.dll'), noAssemblies),
+    false,
+  );
+});
+
+test('запуск сборки хостом распознаётся по второй подсказке в командной строке', () => {
+  assert.equal(isDotnetCandidate(candidate('/usr/bin/myhost /repo/App.dll'), noAssemblies), true);
+});
+
+test('инфраструктура Aspire не попадает в кандидаты', () => {
+  // Командная строка Aspire, дашборд и оркестратор запускаются ради отладки, а не для мониторинга.
+  assert.equal(isIgnored(candidate('/home/user/.dotnet/tools/aspire run --apphost /repo/AppHost')), true);
+  assert.equal(isIgnored(candidate('/home/user/.dotnet/tools/.store/aspire.cli/13.6.1/dashboard/Aspire.Dashboard')), true);
+  assert.equal(isIgnored(candidate('/home/user/.dotnet/tools/.store/aspire.cli/13.6.1/dcp/dcp start-apiserver')), true);
+  // Сам проект AppHost при этом остаётся кандидатом.
+  assert.equal(isIgnored(candidate('/repo/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost')), false);
+});

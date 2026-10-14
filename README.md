@@ -13,6 +13,10 @@
 
 🇷🇺 Русская версия: [README.ru.md](README.ru.md) · 📋 Changelog: [CHANGELOG.md](CHANGELOG.md)
 
+<p align="center">
+  <img src="resources/screenshots/panel.png" alt="Monitor Dotnet panel next to the editor: performance charts, detected issues, counters and environment" width="900">
+</p>
+
 ---
 
 ## ✨ Features
@@ -26,7 +30,8 @@
 | 🧾 | **EventCounters** | Classic .NET counters grouped by provider |
 | 📐 | **Metrics** | `System.Diagnostics.Metrics` instruments grouped by meter |
 | 🌱 | **Environment** | Environment variables and system properties of the process |
-| 🐞 | **Debug integration** | Monitoring starts automatically on .NET debug sessions |
+| 🐞 | **Debug integration** | Monitoring starts automatically on .NET debug sessions: `coreclr`, C# Dev Kit and Aspire |
+| 🎯 | **Process picker** | Choose which running process to monitor when several applications are launched together |
 | 🔌 | **Attach to process** | Connect to any running .NET process in two clicks |
 | 🧵 | **Call stack** | Snapshot the call stack of the running process |
 | 💾 | **Memory snapshot** | Collect a GCDump and reveal it in the file manager |
@@ -44,6 +49,8 @@
 | 🟣 | **.NET 10 runtime** | The bundled bridge that reads EventPipe is a `net10.0` app, and it is started through `dotnet`. `dotnet` must be on `PATH`, otherwise set `monitor-dotnet.dotnetPath` |
 | 🔬 | `dotnet-stack`, `dotnet-gcdump`, `dotnet-trace` *(optional)* | Needed for a call stack snapshot, a memory snapshot and profiling. The extension offers to install a missing tool with one command |
 
+For Aspire projects the Aspire CLI has to be installed: it is the CLI that starts the AppHost project. The Aspire extension for VS Code is optional — monitoring attaches to the same process as the debugger.
+
 The application you monitor does not have to be .NET 10: EventPipe has been available since .NET Core 3.0, so .NET 5 apps and newer work as well.
 Windows, Linux and macOS are supported — private memory, environment variables and the command line are read through platform APIs. Mono and Unity are not supported.
 
@@ -54,6 +61,40 @@ Windows, Linux and macOS are supported — private memory, environment variables
 1. 📦 Install the extension (see **Build from source** below for a local build).
 2. ⌨️ Press `F5` on any .NET project, or run **Monitor Dotnet: Start Monitoring** from the command palette.
 3. 📊 The **Monitor Dotnet** panel appears in the activity bar with live charts and counters.
+
+---
+
+## 🐞 Debug integration
+
+| How the application is started | Debug session type | Which process is monitored |
+| --- | --- | --- |
+| `coreclr` launch of an assembly (`App.dll`) | `coreclr` | The application process (apphost or `dotnet` host) |
+| C# Dev Kit project launch (`projectPath` in the configuration) | `dotnet` | The project's application process, not the `dotnet run` wrapper |
+| Aspire AppHost (`aspire run` under the debugger) | `aspire` | The **AppHost** process — the same one the debugger is attached to. Services started by Aspire are not monitored automatically: attach to one with **Attach to .NET Process…** |
+
+Sessions of other .NET types (`clr` for .NET Framework, `dotnet-core`) are recognised as well. In an Aspire
+solution the dashboard, the orchestrator and the CLI are never offered as targets.
+
+**F# projects work the same way**: Ionide debugs them through the `coreclr` session and puts the built
+assembly into `program`, and the same rules pick the application process. `.fsproj` is understood wherever
+a project file can be given. Profiling itself is runtime-level — the bridge reads EventPipe — so the
+language of the application does not matter.
+
+---
+
+## 🎯 Choosing the process
+
+When several applications run together — an Aspire AppHost with its services, or a compound launch —
+you pick which process to monitor. **Process** in the panel header lists everything running:
+
+| Where the list lives | What it shows |
+| --- | --- |
+| Dropdown in the Performance panel | Debug sessions first, then other .NET processes, with the monitored one marked with a check mark |
+| **Monitor Dotnet: Select Process to Monitor…** in the command palette (or the panel toolbar button) | The same list with PID and command line, so you can also attach to a process started without a debugger |
+
+The process detected for a session is remembered, so switching is instant. Monitoring is never switched
+behind your back: when a second debug session starts, the first one keeps being monitored and the extension
+offers to switch. When the monitored session ends, the extension suggests another running process.
 
 ---
 
@@ -95,6 +136,18 @@ Turn the whole thing off with `monitor-dotnet.enableIssueDetection`.
 The same list lives in the native **Issues** view next to the charts, with a theme icon per severity and
 the interval in the description. It works even with the panel closed: clicking an issue opens the charts
 and selects that interval.
+
+The list is a report of the run, not a slice of the current data. Problems are kept per process: the
+chart panel and its bands always belong to the process shown on the charts, while the **Issues** view
+keeps the history and groups it by process (name and PID, with the monitored one marked, the monitored
+group expanded first).
+
+Every issue keeps its own data. When the live charts have already moved past an interval — or it belongs
+to another process — clicking the issue shows that saved interval: the charts are drawn from the stored
+points with some context around it, a band marks the exact range, the summary below gives min / avg / max
+and GC numbers, and a banner names the process and offers **Back to live data**. So an old issue can still
+be analysed; only the points that were never collected are lost. The next debug session starts the list
+over, and **Clear Collected Data** forgets it as well.
 
 ---
 
@@ -219,6 +272,8 @@ It attaches to the target process, parses the event stream and sends ready-made 
 | `bridge/MonitorDotnet.Bridge` | .NET 10 bridge: EventPipe session, event parsing, process statistics |
 | `bridge/MonitorDotnet.Bridge.Tests` | Bridge tests, including an end-to-end run against a real process |
 | `samples/SampleApp` | Demo application with counters, metrics and load |
+| `samples/WebApi` | ASP.NET Core web app for checking the `coreclr` and C# Dev Kit launch styles |
+| `samples/AspireApp` | Aspire AppHost with one service, for checking the `aspire` debug session |
 | `scripts/build.ts` | Builds the extension and the webview bundle with esbuild |
 | `l10n`, `package.nls.*` | Translation dictionaries |
 | `test` | Extension tests: activation, localization, end-to-end data flow |
@@ -245,7 +300,7 @@ Useful commands:
 | `npm run typecheck` | Type check with TypeScript 7 (extension and webview separately) |
 | `npm test` | Extension tests, including dictionary consistency |
 | `npm run test:bridge` | Bridge tests with xunit |
-| `MONITOR_DOTNET_E2E=1 npm test` | End-to-end check: starts `samples/SampleApp --stress`, attaches to it and waits for a detected issue |
+| `MONITOR_DOTNET_E2E=1 npm test` | End-to-end checks on real processes: `samples/SampleApp --stress` (charts and issue detection), plus `samples/WebApi` and `samples/AspireApp` for the debug session types |
 
 ---
 

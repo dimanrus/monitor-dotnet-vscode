@@ -10,6 +10,7 @@
   "command.focusPerformance.title": "Show Performance Charts",
   "command.openSettings.title": "Open Settings",
   "command.selectIssueInterval.title": "Show Issue Interval on Charts",
+  "command.selectTarget.title": "Select Process to Monitor…",
   "command.startMonitoring.title": "Start Monitoring",
   "command.startProfiling.title": "Start Performance Profiling (dotnet-trace)",
   "command.stopMonitoring.title": "Stop Monitoring",

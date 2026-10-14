@@ -29,6 +29,11 @@ export interface DebuggeeHints {
   processId?: number;
   /** Путь к программе из конфигурации launch. */
   program?: string;
+  /**
+   * Путь к проекту из конфигурации запуска C# Dev Kit (`type: dotnet`).
+   * Приложение задаётся проектом, а не сборкой, поэтому имя цели берём из имени файла проекта.
+   */
+  projectPath?: string;
   /** Рабочий каталог из конфигурации launch. */
   cwd?: string;
   /** Подстрока командной строки из настроек расширения. */
@@ -92,7 +97,7 @@ export function selectDebuggeePid(
     return byProgram;
   }
 
-  const hasProgramHint = Boolean(hints.program || hints.cwd);
+  const hasProgramHint = Boolean(hints.program || hints.projectPath || hints.cwd);
   if (!hasProgramHint || hints.allowFallback === true) {
     // Подсказок нет (или поиск уже исчерпал время): берём самый поздний из подходящих процессов.
     return newest(fresh)?.pid;
@@ -112,36 +117,127 @@ function isStartedWithSession(candidate: ProcessCandidate, sessionStartMs: numbe
     candidate.startTimeMs <= sessionStartMs + START_TIME_MAX_DELAY_MS;
 }
 
-/** Сопоставление по пути к программе и рабочему каталогу из конфигурации запуска. */
+/**
+ * Сопоставление по пути к программе, проекту и рабочему каталогу из конфигурации запуска.
+ *
+ * Признаки неравноценны: имя сборки или проекта указывает на цель точно, а рабочий каталог —
+ * лишь область поиска. Поэтому совпадения взвешиваются, и побеждает процесс с наибольшим весом.
+ * Без этого в решениях Aspire, где рядом работают хост, сервисы и дашборд, выбирался
+ * случайный процесс — тот, что стартовал последним.
+ */
 function matchByProgram(
   candidates: readonly ProcessCandidate[],
   hints: DebuggeeHints,
 ): number | undefined {
-  const needles = new Set<string>();
-  if (hints.program) {
-    const program = normalize(hints.program);
-    needles.add(program);
-    // Для приложения, запущенного через `dotnet app.dll`, в командной строке будет и dll, и каталог.
-    needles.add(stripExtension(program));
-    needles.add(fileName(program));
-    needles.add(stripExtension(fileName(program)));
-  }
-
-  if (hints.cwd) {
-    needles.add(normalize(hints.cwd));
-  }
-
-  const meaningful = [...needles].filter(needle => needle.length > 3);
-  if (meaningful.length === 0) {
+  const needles = buildNeedles(hints);
+  if (needles.length === 0) {
     return undefined;
   }
 
-  const matches = candidates.filter(candidate => {
+  let best: { pid: number; score: number; isHost: boolean; startTimeMs: number } | undefined;
+  for (const candidate of candidates) {
     const commandLine = normalize(candidate.commandLine);
-    return meaningful.some(needle => commandLine.includes(needle));
-  });
+    let score = 0;
+    for (const needle of needles) {
+      if (commandLine.includes(needle.value)) {
+        score += needle.weight;
+      }
+    }
 
-  return newest(matches)?.pid;
+    if (score === 0) {
+      continue;
+    }
+
+    // `dotnet run --project …` — это запускающая обёртка, а не само приложение:
+    // отладчик подключается к дочернему процессу, поэтому у обёртки снижаем вес.
+    if (isRunner(candidate)) {
+      score -= RUNNER_PENALTY;
+    }
+
+    const isHost = isDotnetHost(candidate);
+    if (best === undefined ||
+      score > best.score ||
+      (score === best.score && best.isHost && !isHost) ||
+      (score === best.score && best.isHost === isHost && candidate.startTimeMs > best.startTimeMs)) {
+      best = { pid: candidate.pid, score, isHost, startTimeMs: candidate.startTimeMs };
+    }
+  }
+
+  return best?.pid;
+}
+
+/** Признак командной строки с весом: чем выше вес, тем точнее признак указывает на цель. */
+interface Needle {
+  value: string;
+  weight: number;
+}
+
+/**
+ * Собирает признаки для сопоставления.
+ * Вес 3 — путь к программе и имя сборки или проекта, вес 1 — каталог, который лишь ограничивает поиск.
+ */
+function buildNeedles(hints: DebuggeeHints): Needle[] {
+  const needles = new Map<string, number>();
+
+  const add = (value: string, weight: number): void => {
+    if (value.length <= 3) {
+      return;
+    }
+
+    needles.set(value, Math.max(needles.get(value) ?? 0, weight));
+  };
+
+  for (const raw of [hints.program, hints.projectPath]) {
+    if (raw === undefined || raw.length === 0) {
+      continue;
+    }
+
+    const normalized = normalize(raw);
+    // Путь без расширения: `/app/bin/Debug/net10.0/App.dll` и `/app/App.csproj` дают имя сборки.
+    const withoutExtension = stripExtension(normalized);
+    add(normalized, 3);
+    add(withoutExtension, 3);
+    // Имя сборки или проекта — самый надёжный признак: оно есть и в командной строке apphost,
+    // и у хоста `dotnet`, и у `dotnet run --project`.
+    add(fileName(withoutExtension), 3);
+    // Каталог программы нужен для случая, когда в подсказке только сборка.
+    add(directoryName(withoutExtension), 1);
+  }
+
+  if (hints.cwd !== undefined && hints.cwd.length > 0) {
+    add(normalize(hints.cwd), 1);
+  }
+
+  return [...needles].map(([value, weight]) => ({ value, weight }));
+}
+
+/** Штраф за совпадение с процессом-обёрткой `dotnet run`: настоящая цель — его дочерний процесс. */
+const RUNNER_PENALTY = 8;
+
+/** Процесс запущен хостом `dotnet`: он выступает обёрткой, а не самой программой. */
+function isDotnetHost(candidate: ProcessCandidate): boolean {
+  const executable = candidate.executablePath ?? candidate.commandLine.trim().split(/\s+/)[0] ?? '';
+  const name = fileName(normalize(executable)).toLowerCase();
+  return name === 'dotnet' || name === 'dotnet.exe';
+}
+
+/**
+ * Процесс лишь запускает приложение: `dotnet run --project …` или `dotnet watch run`.
+ * Проверяем именно подкоманду хоста, а не слово в пути: проект с именем `Run` не должен считаться обёрткой.
+ */
+function isRunner(candidate: ProcessCandidate): boolean {
+  if (!isDotnetHost(candidate)) {
+    return false;
+  }
+
+  const argumentsList = candidate.commandLine
+    .trim()
+    .split(/\s+/)
+    .slice(1)
+    .map(token => token.replace(/^"|"$/g, '').toLowerCase())
+    .filter(token => !token.startsWith('-'));
+
+  return argumentsList[0] === 'run' || (argumentsList[0] === 'watch' && argumentsList[1] === 'run');
 }
 
 /** Самый поздний по времени запуска процесс: цель отладки стартует последней. */
@@ -162,13 +258,19 @@ function normalize(value: string): string {
   return process.platform === 'win32' ? unified.toLowerCase() : unified;
 }
 
-/** Отбрасывает расширение файла (.dll, .exe). */
+/** Отбрасывает расширение файла: сборки, исполняемые файлы и файлы проектов. */
 function stripExtension(value: string): string {
-  return value.replace(/\.(dll|exe|so|dylib)$/i, '');
+  return value.replace(/\.(dll|exe|so|dylib|csproj|fsproj|vbproj)$/i, '');
 }
 
 /** Имя файла из пути. */
 function fileName(value: string): string {
   const index = value.lastIndexOf('/');
   return index >= 0 ? value.slice(index + 1) : value;
+}
+
+/** Каталог из пути: нужен для подсказок вроде `/app/bin/Debug/net10.0/App.dll`. */
+function directoryName(value: string): string {
+  const index = value.lastIndexOf('/');
+  return index > 0 ? value.slice(0, index) : '';
 }

@@ -17,11 +17,43 @@ import {
   type ChartMeta,
   type ChartPoint,
 } from '../core/chartData.ts';
-import { collectIssues } from '../core/issueSource.ts';
+import type { TargetGroups } from '../core/targetChoices.ts';
+import { clampToData, paddedRange } from '../core/chartView.ts';
+import type { IssueSlice } from '../core/issueStore.ts';
 import type { MonitorState } from '../core/monitorState.ts';
 import { buildWebviewStrings, type WebviewStrings } from '../core/webviewStrings.ts';
 import { translate } from '../core/locale.ts';
 import type { Logger } from '../logger.ts';
+
+/** Как часто панель перечитывает список целей, пока она видна. */
+const TARGETS_POLL_INTERVAL_MS = 10_000;
+
+/**
+ * Всё, что панели нужно от расширения: цели мониторинга и переход к проблеме.
+ * Список целей собирает расширение: у панели нет доступа к процессам и сессиям отладки.
+ */
+export interface PerformancePanelOptions {
+  /** Возвращает сессии отладки и процессы .NET. */
+  listTargets: () => Promise<TargetGroups>;
+  /** Переключает мониторинг на выбранную цель (значение вида `session:<id>` или `pid:<pid>`). */
+  selectTarget: (value: string) => void | Promise<void>;
+  /** Показывает интервал проблемы, выбранной в списке панели. */
+  revealIssue: (issue: IssueIntervalRequest) => void | Promise<void>;
+}
+
+/** Интервал проблемы, выбранной в списке панели. */
+export interface IssueIntervalRequest {
+  issueId: string;
+  fromMs: number;
+  toMs: number;
+}
+
+/** Значения по умолчанию: панель без связи с расширением (например, в тестах). */
+const defaultOptions: PerformancePanelOptions = {
+  listTargets: async () => ({ sessions: [], processes: [] }),
+  selectTarget: () => undefined,
+  revealIssue: () => undefined,
+};
 
 /** Сообщение из webview. */
 interface WebviewMessage {
@@ -31,6 +63,12 @@ interface WebviewMessage {
   canvases?: string;
   painted?: boolean;
   issues?: number;
+  /** Выбранная в панели цель мониторинга. */
+  target?: string;
+  /** Проблема, выбранная в списке панели. */
+  issueId?: string;
+  fromMs?: number;
+  toMs?: number;
 }
 
 export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -49,14 +87,20 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
   private strings: WebviewStrings = buildWebviewStrings(translate);
 
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Таймер обновления списка целей: процессы появляются и исчезают без событий сессий. */
+  private targetsTimer: ReturnType<typeof setInterval> | undefined;
+  /** Очередь обновлений списка целей: обновления не должны обгонять друг друга. */
+  private targetsQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly state: MonitorState,
     private readonly getWindowSeconds: () => number,
     private readonly getRefreshIntervalSeconds: () => number,
-    private readonly getEnableIssues: () => boolean,
+    /** Проблемы для показа: найденные сейчас и сохранённые при смене процесса. */
+    private readonly listIssues: () => ChartIssue[],
     private readonly logger: Logger,
+    private readonly options: PerformancePanelOptions = defaultOptions,
   ) {
     this.disposables.push({ dispose: this.state.onDidChange(() => this.scheduleFlush()) });
   }
@@ -73,13 +117,59 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
 
     this.disposables.push(
       view.onDidChangeVisibility(() => {
+        // Свёрнутая панель не опрашивает процессы: список целей обновляем при показе.
+        this.updateTargetPolling();
         if (view.visible) {
           // Возвращаем панель в актуальное состояние после сворачивания.
+          void this.refreshTargets();
           this.sendSnapshot();
         }
       }),
-      view.onDidDispose(() => this.view = undefined),
+      view.onDidDispose(() => {
+        this.view = undefined;
+        this.updateTargetPolling();
+      }),
     );
+
+    this.updateTargetPolling();
+  }
+
+  /**
+   * Обновляет список целей в панели.
+   * Список живой: приложения запускаются и завершаются, поэтому его перечитывают по таймеру.
+   *
+   * Обновления идут строго по очереди: сбор списка асинхронный, и при нескольких
+   * одновременных вызовах сообщения приходили бы не по порядку — панель показывала бы
+   * устаревший состав целей.
+   */
+  refreshTargets(): Promise<void> {
+    this.targetsQueue = this.targetsQueue.then(() => this.postTargets());
+    return this.targetsQueue;
+  }
+
+  /** Отправляет панели текущий список целей. */
+  private async postTargets(): Promise<void> {
+    const view = this.view;
+    if (view === undefined) {
+      return;
+    }
+
+    const groups = await this.options.listTargets();
+    if (this.view === view && view.visible) {
+      await view.webview.postMessage({ type: 'targets', groups, strings: this.strings });
+    }
+  }
+
+  /** Передаёт в панель текущую цель, чтобы список не расходился с состоянием монитора. */
+  private updateTargetPolling(): void {
+    const shouldPoll = this.view?.visible === true;
+    if (shouldPoll && this.targetsTimer === undefined) {
+      this.targetsTimer = setInterval(() => void this.refreshTargets(), TARGETS_POLL_INTERVAL_MS);
+      this.targetsTimer.unref?.();
+    } else if (!shouldPoll && this.targetsTimer !== undefined) {
+      clearInterval(this.targetsTimer);
+      this.targetsTimer = undefined;
+    }
   }
 
   /**
@@ -94,6 +184,39 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
     }
 
     await view.webview.postMessage({ type: 'selectRange', fromMs, toMs });
+  }
+
+  /**
+   * Показывает сохранённый интервал проблемы.
+   * Живой ряд к этому моменту ушёл вперёд, поэтому графики рисуются по сохранённым
+   * точкам: иначе выделенный диапазон остался бы пустым и анализировать было бы нечего.
+   */
+  async showIssueSlice(processLabel: string, slice: IssueSlice): Promise<void> {
+    await vscode.commands.executeCommand(`${PerformanceChartPanel.viewType}.focus`);
+    const view = this.view;
+    if (view === undefined) {
+      return;
+    }
+
+    const { issue } = slice;
+    // Небольшой запас по краям, но не шире сохранённых точек: за ними линий нет,
+    // и по краям графика осталось бы пустое место.
+    const range = clampToData(paddedRange({ fromMs: issue.fromMs, toMs: issue.toMs }), slice.points);
+    await view.webview.postMessage({
+      type: 'issueSlice',
+      meta: this.buildMeta(),
+      processLabel,
+      issue,
+      points: slice.points,
+      gcEvents: slice.gcEvents,
+      fromMs: issue.fromMs,
+      toMs: issue.toMs,
+      viewFromMs: range.fromMs,
+      viewToMs: range.toMs,
+      generation: this.state.generation,
+      strings: this.strings,
+      locale: vscode.env.language,
+    });
   }
 
   /** Передаёт в панель новые данные, если вид сейчас показан. */
@@ -118,6 +241,7 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
         type: 'meta',
         meta: this.buildMeta(),
         issues: this.buildIssues(),
+        generation: this.state.generation,
         strings: this.strings,
         locale: vscode.env.language,
       });
@@ -132,6 +256,7 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
       gcEvents: gcEvents.filter(event => event.t > this.sentLastTime - this.windowMs()),
       issues: this.buildIssues(),
       meta: this.buildMeta(),
+      generation: this.state.generation,
       strings: this.strings,
       locale: vscode.env.language,
     });
@@ -140,6 +265,10 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
   dispose(): void {
     if (this.flushTimer !== undefined) {
       clearTimeout(this.flushTimer);
+    }
+
+    if (this.targetsTimer !== undefined) {
+      clearInterval(this.targetsTimer);
     }
 
     for (const disposable of this.disposables) {
@@ -154,6 +283,23 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
         // Панель загрузила скрипты и готова принимать данные: значит разметка и политика безопасности верны.
         this.logger.info(translate('Charts panel is ready, sending data.'));
         this.sendSnapshot();
+        void this.refreshTargets();
+        return;
+
+      case 'selectTarget':
+        // Пользователь выбрал другой процесс: переключаем мониторинг на него.
+        if (typeof message.target === 'string' && message.target.length > 0) {
+          void this.options.selectTarget(message.target);
+        }
+
+        return;
+
+      case 'revealIssue':
+        // Пользователь нажал на найденную проблему в списке панели.
+        if (typeof message.issueId === 'string' && typeof message.fromMs === 'number' && typeof message.toMs === 'number') {
+          void this.options.revealIssue({ issueId: message.issueId, fromMs: message.fromMs, toMs: message.toMs });
+        }
+
         return;
 
       case 'requestSnapshot':
@@ -201,6 +347,7 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
       points,
       gcEvents: this.buildGcEvents().slice(-CHART_HISTORY_LIMIT),
       issues: this.buildIssues(),
+      generation: this.state.generation,
       strings: this.strings,
       locale: vscode.env.language,
     });
@@ -227,11 +374,11 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
   }
 
   /**
-   * Ищет проблемы производительности в собранных данных.
-   * Список пересчитывается на каждом обновлении: интервалы уточняются по мере поступления точек.
+   * Проблемы для панели: найденные сейчас и сохранённые при смене процесса.
+   * Список ведёт накопитель, поэтому он не пустеет на каждом обновлении данных.
    */
   private buildIssues(): ChartIssue[] {
-    return collectIssues(this.state, this.getEnableIssues());
+    return this.listIssues();
   }
 
   private buildMeta(): ChartMeta {
@@ -287,15 +434,23 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
 </head>
 <body>
   <header>
-    <div>
+    <div class="process-head">
       <div class="process-name" id="process-name">${translate('No process selected')}</div>
-      <div class="process-details" id="process-details"></div>
+      <div class="controls">
+        <button id="pause" type="button" aria-pressed="false">${translate('Pause')}</button>
+        <button id="reset-selection" type="button">${translate('Reset selection')}</button>
+      </div>
     </div>
-    <div class="controls">
-      <button id="pause" type="button" aria-pressed="false">${translate('Pause')}</button>
-      <button id="reset-selection" type="button">${translate('Reset selection')}</button>
-    </div>
+    <div class="process-details" id="process-details"></div>
+    <label class="target" for="target">
+      <span class="target-label">${translate('Process')}</span>
+      <select id="target" aria-label="${translate('Process to monitor')}"></select>
+    </label>
   </header>
+  <section class="archive" id="archive" hidden>
+    <div class="archive-text" id="archive-text"></div>
+    <button id="archive-exit" type="button">${translate('Back to live data')}</button>
+  </section>
   <section class="cards" id="cards"></section>
   <section class="issues" id="issues" hidden></section>
   <section class="charts" id="charts"></section>

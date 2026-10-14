@@ -151,3 +151,21 @@ test('applyError: фатальная ошибка переводит состо�
   assert.equal(state.status, 'failed');
   assert.equal(state.lastError, 'нет доступа');
 });
+
+test('range: показывает границы собранного ряда', () => {
+  const state = new MonitorState();
+  assert.equal(state.range, undefined, 'без данных диапазона быть не должно');
+
+  state.applySample(createSample(1_000));
+  state.applySample(createSample(3_000));
+
+  assert.deepEqual(state.range, { fromMs: 1_000, toMs: 3_000 });
+});
+
+test('range: после очистки данных диапазона снова нет', () => {
+  const state = new MonitorState();
+  state.applySample(createSample(1_000));
+  state.clear();
+
+  assert.equal(state.range, undefined);
+});

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Пример ASP.NET Core-приложения: нужен, чтобы проверять расширение на веб-проектах,
+    которые VS Code запускает через C# Dev Kit (типы отладки coreclr и dotnet).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AspireApp.Api</RootNamespace>
+    <AssemblyName>AspireApp.Api</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -25,8 +25,10 @@ import {
   formatNumber,
   formatPercent,
 } from '../core/formatting.ts';
+import { archiveReplaced, liveVisibleRange, type TimeRange } from '../core/chartView.ts';
 import { configureLocale, formatTemplate, word } from '../core/locale.ts';
 import { DEFAULT_WEBVIEW_STRINGS, type WebviewStrings } from '../core/webviewStrings.ts';
+import type { TargetEntry, TargetGroups } from '../core/targetChoices.ts';
 import { resolveCanvasColor } from './colors.ts';
 import { drawChart, type ChartPalette, type ChartSpec, type ChartView } from './render.ts';
 import './charts.css';
@@ -39,6 +41,7 @@ type IncomingMessage =
       points: ChartPoint[];
       gcEvents: ChartGcEvent[];
       issues?: ChartIssue[];
+      generation?: number;
       strings?: WebviewStrings;
       locale?: string;
     }
@@ -48,18 +51,44 @@ type IncomingMessage =
       gcEvents: ChartGcEvent[];
       meta?: ChartMeta;
       issues?: ChartIssue[];
+      generation?: number;
       strings?: WebviewStrings;
       locale?: string;
     }
-  | { type: 'meta'; meta: ChartMeta; issues?: ChartIssue[]; strings?: WebviewStrings; locale?: string }
-  | { type: 'selectRange'; fromMs: number; toMs: number; locale?: string };
+  | {
+      type: 'meta';
+      meta: ChartMeta;
+      issues?: ChartIssue[];
+      generation?: number;
+      strings?: WebviewStrings;
+      locale?: string;
+    }
+  | { type: 'selectRange'; fromMs: number; toMs: number; locale?: string }
+  | {
+      type: 'issueSlice';
+      meta: ChartMeta;
+      processLabel: string;
+      issue: ChartIssue;
+      points: ChartPoint[];
+      gcEvents: ChartGcEvent[];
+      fromMs: number;
+      toMs: number;
+      viewFromMs: number;
+      viewToMs: number;
+      generation?: number;
+      strings?: WebviewStrings;
+      locale?: string;
+    }
+  | { type: 'targets'; groups: TargetGroups; strings?: WebviewStrings; locale?: string };
 
 /** Сообщение в расширение. */
 type OutgoingMessage =
   | { type: 'ready' }
   | { type: 'requestSnapshot' }
   | { type: 'problem'; message: string }
-  | { type: 'rendered'; points: number; canvases: string; painted: boolean; issues: number };
+  | { type: 'rendered'; points: number; canvases: string; painted: boolean; issues: number }
+  | { type: 'selectTarget'; target: string }
+  | { type: 'revealIssue'; issueId: string; fromMs: number; toMs: number };
 
 interface VsCodeApi {
   postMessage(message: OutgoingMessage): void;
@@ -80,10 +109,30 @@ const state = {
   gcEvents: [] as ChartGcEvent[],
   /** Найденные проблемы производительности: показываются списком и полосами на графиках. */
   issues: [] as ChartIssue[],
+  /** Цели мониторинга: сессии отладки и процессы .NET. */
+  targets: { sessions: [], processes: [] } as TargetGroups,
+  /** Значение, выбранное в списке целей: сообщение о выборе отправляется только при смене. */
+  selectedTarget: '',
   meta: buildChartMeta(undefined, 'idle', null, 1, 120, { gen0: 0, gen1: 0, gen2: 0 }),
   /** Окно отображения в секундах: сколько времени показывать на графиках. */
   windowSeconds: 120,
   paused: false,
+  /**
+   * Сохранённый интервал проблемы, когда живые графики уже ушли вперёд.
+   * Пока он открыт, графики рисуются по этим точкам, а живые данные копятся в фоне.
+   */
+  archive: null as {
+    points: ChartPoint[];
+    gcEvents: ChartGcEvent[];
+    issues: ChartIssue[];
+    meta: ChartMeta;
+    label: string;
+    fromMs: number;
+    toMs: number;
+    viewFromMs: number;
+    viewToMs: number;
+    generation: number;
+  } | null,
   selection: null as { from: number; to: number } | null,
   hoverT: null as number | null,
   hoverChart: '' as string,
@@ -232,25 +281,30 @@ window.addEventListener('message', event => {
     case 'snapshot':
       state.points = message.points.slice(-MAX_POINTS);
       state.gcEvents = message.gcEvents.slice(-MAX_POINTS);
-      state.meta = message.meta;
-      state.issues = message.issues ?? [];
+      // Данные заменили (новый процесс или очистка) — сохранённый интервал больше не к месту.
+      dropArchiveWhenReplaced(message.generation);
+      if (state.archive === null) {
+        state.meta = message.meta;
+        state.issues = message.issues ?? [];
+      }
+
       state.strings = message.strings ?? state.strings;
       state.windowSeconds = readWindowSeconds(message.meta);
       break;
     case 'append':
-      if (state.paused) {
+      if (state.paused && state.archive === null) {
         // На паузе данные не принимаем: при возобновлении запрашиваем свежий снимок.
         return;
       }
 
       state.points = [...state.points, ...message.points].slice(-MAX_POINTS);
       state.gcEvents = [...state.gcEvents, ...message.gcEvents].slice(-MAX_POINTS);
-      if (message.meta !== undefined) {
+      if (state.archive === null && message.meta !== undefined) {
         state.meta = message.meta;
         state.windowSeconds = readWindowSeconds(message.meta);
       }
 
-      if (message.issues !== undefined) {
+      if (state.archive === null && message.issues !== undefined) {
         state.issues = message.issues;
       }
 
@@ -258,16 +312,46 @@ window.addEventListener('message', event => {
         state.strings = message.strings;
       }
 
+      // Открыт сохранённый интервал: живые данные копим в фоне, но показываем сохранённые.
       break;
     case 'meta':
+      dropArchiveWhenReplaced(message.generation);
+      if (state.archive === null) {
+        state.meta = message.meta;
+        state.issues = message.issues ?? state.issues;
+      }
+
+      state.strings = message.strings ?? state.strings;
+      state.windowSeconds = readWindowSeconds(message.meta);
+      break;
+
+    case 'issueSlice':
+      state.archive = {
+        points: message.points.slice(-MAX_POINTS),
+        gcEvents: message.gcEvents.slice(-MAX_POINTS),
+        issues: [message.issue],
+        meta: message.meta,
+        label: message.processLabel,
+        fromMs: message.fromMs,
+        toMs: message.toMs,
+        viewFromMs: message.viewFromMs,
+        viewToMs: message.viewToMs,
+        generation: message.generation ?? state.archive?.generation ?? 0,
+      };
       state.meta = message.meta;
-      state.issues = message.issues ?? state.issues;
+      state.issues = [message.issue];
+      state.selection = { from: message.fromMs, to: message.toMs };
       state.strings = message.strings ?? state.strings;
       state.windowSeconds = readWindowSeconds(message.meta);
       break;
 
     case 'selectRange':
       selectRange(message.fromMs, message.toMs);
+      return;
+
+    case 'targets':
+      state.targets = message.groups;
+      updateTargets();
       return;
   }
 
@@ -279,8 +363,126 @@ window.addEventListener('message', event => {
 
   updateHeader();
   updateIssues();
+  updateArchive();
   scheduleRedraw();
 });
+
+/**
+ * Точки, по которым сейчас рисуются графики: живые или сохранённый интервал.
+ * Пока открыт сохранённый интервал, показываем именно его — иначе выделение
+ * оказалось бы поверх пустого места.
+ */
+function displayPoints(): ChartPoint[] {
+  return state.archive?.points ?? state.points;
+}
+
+/** События GC показанных данных. */
+function displayGcEvents(): ChartGcEvent[] {
+  return state.archive?.gcEvents ?? state.gcEvents;
+}
+
+/** Проблемы, к которым относятся показанные данные: у сохранённого интервала — только он сам. */
+function displayIssues(): ChartIssue[] {
+  return state.archive?.issues ?? state.issues;
+}
+
+/**
+ * Закрывает сохранённый интервал, если данные монитора заменили.
+ * Новый процесс или очистка делают сохранённые точки чужими для графиков.
+ */
+function dropArchiveWhenReplaced(generation: number | undefined): void {
+  if (state.archive === null || !archiveReplaced(state.archive.generation, generation)) {
+    return;
+  }
+
+  state.archive = null;
+  state.selection = null;
+}
+
+/** Закрывает сохранённый интервал и возвращает панель к живым данным. */
+function exitArchive(): void {
+  if (state.archive === null) {
+    return;
+  }
+
+  state.archive = null;
+  state.selection = null;
+  vscode.postMessage({ type: 'requestSnapshot' });
+}
+
+/** Полоса о показанном сохранённом интервале: объясняет, чьи данные на графиках. */
+function updateArchive(): void {
+  const container = document.getElementById('archive');
+  const text = document.getElementById('archive-text');
+  const exit = document.getElementById('archive-exit');
+  if (container === null || text === null || exit === null) {
+    return;
+  }
+
+  const archive = state.archive;
+  container.hidden = archive === null;
+  if (archive === null) {
+    return;
+  }
+
+  text.textContent = formatTemplate(
+    state.strings.archiveHint,
+    `${archive.label} · ${formatClockTime(archive.fromMs)} — ${formatClockTime(archive.toMs)}`,
+  );
+  exit.textContent = state.strings.buttonBackToLive;
+}
+
+/** Показывает список целей мониторинга: сессии отладки отдельно, процессы отдельно. */
+function updateTargets(): void {
+  const select = document.getElementById('target') as HTMLSelectElement | null;
+  if (select === null) {
+    return;
+  }
+
+  const groups = state.targets;
+  const total = groups.sessions.length + groups.processes.length;
+  select.textContent = '';
+  select.disabled = total === 0;
+
+  if (total === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = state.strings.targetEmpty;
+    select.append(option);
+    return;
+  }
+
+  appendGroup(select, state.strings.targetSessions, groups.sessions);
+  appendGroup(select, state.strings.targetProcesses, groups.processes);
+
+  // Показываем текущую цель, не отправляя сообщение о выборе: иначе получится цикл переключений.
+  const current = [...groups.sessions, ...groups.processes].find(entry => entry.isCurrent);
+  if (current !== undefined) {
+    state.selectedTarget = current.value;
+    select.value = current.value;
+  }
+}
+
+/** Добавляет в список группу целей, если она не пуста. */
+function appendGroup(select: HTMLSelectElement, label: string, entries: readonly TargetEntry[]): void {
+  if (entries.length === 0) {
+    return;
+  }
+
+  const group = document.createElement('optgroup');
+  group.label = label;
+
+  for (const entry of entries) {
+    const option = document.createElement('option');
+    option.value = entry.value;
+    // Текущая цель помечается галочкой: так её видно и в раскрытом списке.
+    option.textContent = `${entry.isCurrent ? '✓ ' : ''}${entry.name} — ${entry.detail}`;
+    option.title = entry.detail;
+    group.append(option);
+  }
+
+  select.append(group);
+}
 
 /** Выделяет интервал по запросу расширения: используется при переходе из дерева проблем. */
 function selectRange(fromMs: number, toMs: number): void {
@@ -308,6 +510,17 @@ function bindControls(): void {
   });
 
   document.getElementById('reset-selection')?.addEventListener('click', () => resetSelection());
+  document.getElementById('archive-exit')?.addEventListener('click', () => exitArchive());
+  document.getElementById('target')?.addEventListener('change', event => {
+    const select = event.target as HTMLSelectElement;
+    if (select.value.length === 0 || select.value === state.selectedTarget) {
+      return;
+    }
+
+    // Переключение делает расширение: ему нужно запустить мост на другом процессе.
+    state.selectedTarget = select.value;
+    vscode.postMessage({ type: 'selectTarget', target: select.value });
+  });
   applyPauseLabel();
 }
 
@@ -444,7 +657,7 @@ function applyDraggingSelection(): void {
 
 /** Подсказка со значениями всех рядов в точке под курсором. */
 function showTooltip(tooltip: HTMLElement, spec: ChartSpec, canvas: HTMLCanvasElement, pointerX: number): void {
-  const point = nearestPoint(state.points, state.hoverT);
+  const point = nearestPoint(displayPoints(), state.hoverT);
   if (point === undefined) {
     tooltip.style.display = 'none';
     return;
@@ -477,7 +690,7 @@ function showTooltip(tooltip: HTMLElement, spec: ChartSpec, canvas: HTMLCanvasEl
   }
 
   // События GC рядом с этой точкой: поколение и длительность паузы.
-  const nearby = state.gcEvents.filter(event => Math.abs(event.t - point.t) < 1000).slice(0, 4);
+  const nearby = displayGcEvents().filter(event => Math.abs(event.t - point.t) < 1000).slice(0, 4);
   for (const gcEvent of nearby) {
     const row = document.createElement('div');
     row.className = 'tooltip-row';
@@ -504,7 +717,8 @@ function updateIssues(): void {
   }
 
   container.textContent = '';
-  if (state.issues.length === 0) {
+  const issues = displayIssues();
+  if (issues.length === 0) {
     container.hidden = true;
     return;
   }
@@ -513,7 +727,7 @@ function updateIssues(): void {
 
   const title = document.createElement('div');
   title.className = 'issues-title';
-  title.textContent = `${state.strings.issuesTitle} (${state.issues.length})`;
+  title.textContent = `${state.strings.issuesTitle} (${issues.length})`;
   container.append(title);
 
   const hint = document.createElement('div');
@@ -521,7 +735,7 @@ function updateIssues(): void {
   hint.textContent = state.strings.issuesHint;
   container.append(hint);
 
-  for (const issue of state.issues) {
+  for (const issue of issues) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'issue';
@@ -560,11 +774,21 @@ function severityBadge(severity: ChartIssue['severity']): string {
   }
 }
 
-/** Выделяет интервал проблемы: графики расширяют видимый диапазон и показывают сводку. */
+/**
+ * Просит расширение показать интервал проблемы.
+ * Живой ряд мог уже уйти вперёд, поэтому решение (выделить на графиках или показать
+ * сохранённые точки) принимает расширение — у него есть данные интервала.
+ */
 function selectIssueRange(issue: ChartIssue): void {
-  state.selection = { from: issue.fromMs, to: issue.toMs };
-  updateSummary();
-  scheduleRedraw();
+  if (state.archive !== null) {
+    // Открыт сохранённый интервал: в нём есть данные, выделяем сразу.
+    state.selection = { from: issue.fromMs, to: issue.toMs };
+    updateSummary();
+    scheduleRedraw();
+    return;
+  }
+
+  vscode.postMessage({ type: 'revealIssue', issueId: issue.id, fromMs: issue.fromMs, toMs: issue.toMs });
 }
 
 /** Сводка по выделенному диапазону: минимум, среднее и максимум. */
@@ -575,7 +799,7 @@ function updateSummary(): void {
     return;
   }
 
-  const selected = state.points.filter(point => point.t >= selection.from && point.t <= selection.to);
+  const selected = displayPoints().filter(point => point.t >= selection.from && point.t <= selection.to);
   if (selected.length === 0) {
     summary.setAttribute('hidden', 'true');
     return;
@@ -590,7 +814,7 @@ function updateSummary(): void {
     [strings.summaryManagedHeap, statistic(selected, 'heap', value => formatBytes(value))],
   ];
 
-  const inRange = state.gcEvents.filter(event => event.t >= selection.from && event.t <= selection.to);
+  const inRange = displayGcEvents().filter(event => event.t >= selection.from && event.t <= selection.to);
   if (inRange.length > 0) {
     rows.push([strings.summaryGcCount, formatNumber(inRange.length, 0)]);
     rows.push([strings.summaryGcPause, formatDuration(average(inRange.map(event => event.dur ?? 0)))]);
@@ -640,7 +864,7 @@ function updateHeader(): void {
   const strings = state.strings;
   const name = document.getElementById('process-name');
   const details = document.getElementById('process-details');
-  const latest = state.points.at(-1);
+  const latest = displayPoints().at(-1);
 
   if (name !== null) {
     name.textContent = meta.processName.length > 0
@@ -660,6 +884,13 @@ function updateHeader(): void {
   }
 
   cards.textContent = '';
+  // Плитки показывают последние значения процесса на графиках: у сохранённого интервала
+  // они относились бы к другому прогону, поэтому в этом режиме их не показываем.
+  cards.hidden = state.archive !== null;
+  if (cards.hidden) {
+    return;
+  }
+
   if (latest === undefined) {
     const notice = document.createElement('div');
     notice.className = 'notice';
@@ -704,6 +935,8 @@ function statusText(strings: WebviewStrings): string {
       return strings.statusRunning;
     case 'connecting':
       return strings.statusConnecting;
+    case 'archive':
+      return strings.statusArchive;
     case 'stopped':
       return state.meta.hint ?? strings.statusStopped;
     case 'failed':
@@ -713,30 +946,22 @@ function statusText(strings: WebviewStrings): string {
   }
 }
 
-/** Видимый диапазон времени: последние `windowSeconds` секунд данных. */
-function currentView(): { fromMs: number; toMs: number } {
-  const points = state.points;
-  if (points.length === 0) {
-    const now = Date.now();
-    return { fromMs: now - state.windowSeconds * 1000, toMs: now };
+/**
+ * Видимый диапазон времени.
+ * У сохранённого интервала он приходит с данными (интервал и запас по краям),
+ * у живых графиков считается по последним `windowSeconds` секундам.
+ */
+function currentView(): TimeRange {
+  if (state.archive !== null) {
+    return { fromMs: state.archive.viewFromMs, toMs: state.archive.viewToMs };
   }
 
-  const last = points[points.length - 1].t;
-  const first = points[0].t;
-  const windowMs = state.windowSeconds * 1000;
-  const fromMs = Math.max(first, last - windowMs);
-  // Минимальный диапазон, чтобы график не «схлопывался» в начале сбора.
-  let view = { fromMs: Math.min(fromMs, last - 1000), toMs: Math.max(last, fromMs + 1000) };
-
-  // Переход к найденной проблеме может вывести за пределы окна: расширяем видимый диапазон.
-  if (state.selection !== null) {
-    view = {
-      fromMs: Math.min(view.fromMs, state.selection.from),
-      toMs: Math.max(view.toMs, state.selection.to),
-    };
-  }
-
-  return view;
+  return liveVisibleRange(
+    state.points,
+    state.windowSeconds,
+    Date.now(),
+    state.selection === null ? null : { fromMs: state.selection.from, toMs: state.selection.to },
+  );
 }
 
 /** Область рисования внутри канваса (должна совпадать с render.ts). */
@@ -793,14 +1018,14 @@ function render(): void {
     hoverT,
     selection: state.selection,
     placeholder: state.strings.waitingForData,
-    issues: state.issues,
+    issues: displayIssues(),
   };
 
   const sizes: string[] = [];
   let painted = false;
   for (const chart of charts) {
     try {
-      drawChart(chart.canvas, chart.spec, state.points, state.gcEvents, chartView, palette);
+      drawChart(chart.canvas, chart.spec, displayPoints(), displayGcEvents(), chartView, palette);
       sizes.push(`${chart.spec.id}:${chart.canvas.clientWidth}x${chart.canvas.clientHeight}`);
       painted = painted || hasPaintedPixels(chart.canvas);
     } catch (error) {
@@ -809,7 +1034,7 @@ function render(): void {
     }
   }
 
-  reportRenderOnce(state.points.length, sizes, painted);
+  reportRenderOnce(displayPoints().length, sizes, painted);
 }
 
 /**
