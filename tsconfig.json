@@ -19,7 +19,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    // Только синтаксис, который Node умеет снимать: тесты запускаются без сборки,
+    // и параметры-свойства в конструкторе там недопустимы.
+    "erasableSyntaxOnly": true
   },
   "include": [
     "src/**/*.ts",

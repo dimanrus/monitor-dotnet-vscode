@@ -2,6 +2,20 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
+## [Unreleased]
+
+Work in progress for the next release.
+
+### 🏗️ Architecture
+
+- 📌 `@types/vscode` pinned to the declared minimum (1.100.0) instead of a range: the compiler now rejects APIs newer than 1.100, so the promised support for VS Code 1.100 is enforced by the build
+- 🖥️ The README requirements say the minimum is checked while building, not just declared
+
+### 🧪 Quality
+
+- 🧱 `erasableSyntaxOnly` is enabled: the source may only use syntax Node can strip, and constructor parameter properties were replaced with plain fields
+- 🎯 The CPU overload check of the end-to-end suite no longer depends on machine load: it asks the detection rule whether it should fire and, on a busy machine, reports that the load never reached the threshold instead of failing
+
 ## [1.0.0] — 2026-10-14 🎉
 
 First release: a .NET monitoring tool for VS Code that appears automatically when you debug an application.

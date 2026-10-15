@@ -45,7 +45,7 @@
 
 | | Requirement | Why it is needed |
 | --- | --- | --- |
-| 🖥️ | **VS Code 1.100 or newer** | Current webview, localization and tree APIs |
+| 🖥️ | **VS Code 1.100 or newer** | Webview, localization and tree APIs in use. The minimum is enforced: `@types/vscode` is pinned to 1.100.0, so the build fails if an API newer than 1.100 is used |
 | 🟣 | **.NET 10 runtime** | The bundled bridge that reads EventPipe is a `net10.0` app, and it is started through `dotnet`. `dotnet` must be on `PATH`, otherwise set `monitor-dotnet.dotnetPath` |
 | 🔬 | `dotnet-stack`, `dotnet-gcdump`, `dotnet-trace` *(optional)* | Needed for a call stack snapshot, a memory snapshot and profiling. The extension offers to install a missing tool with one command |
 
@@ -300,7 +300,7 @@ Useful commands:
 | `npm run typecheck` | Type check with TypeScript 7 (extension and webview separately) |
 | `npm test` | Extension tests, including dictionary consistency |
 | `npm run test:bridge` | Bridge tests with xunit |
-| `MONITOR_DOTNET_E2E=1 npm test` | End-to-end checks on real processes: `samples/SampleApp --stress` (charts and issue detection), plus `samples/WebApi` and `samples/AspireApp` for the debug session types |
+| `MONITOR_DOTNET_E2E=1 npm test` | End-to-end checks on real processes: `samples/SampleApp --stress` (charts and issue detection), plus `samples/WebApi` and `samples/AspireApp` for the debug session types. The CPU overload check needs a free machine: on a busy one it reports that the load never reached the threshold instead of failing |
 
 ---
 

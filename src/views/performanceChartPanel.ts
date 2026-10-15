@@ -92,16 +92,32 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
   /** Очередь обновлений списка целей: обновления не должны обгонять друг друга. */
   private targetsQueue: Promise<void> = Promise.resolve();
 
+  private readonly extensionUri: vscode.Uri;
+  private readonly state: MonitorState;
+  private readonly getWindowSeconds: () => number;
+  private readonly getRefreshIntervalSeconds: () => number;
+  /** Проблемы для показа: найденные сейчас и сохранённые при смене процесса. */
+  private readonly listIssues: () => ChartIssue[];
+  private readonly logger: Logger;
+  private readonly options: PerformancePanelOptions;
+
   constructor(
-    private readonly extensionUri: vscode.Uri,
-    private readonly state: MonitorState,
-    private readonly getWindowSeconds: () => number,
-    private readonly getRefreshIntervalSeconds: () => number,
-    /** Проблемы для показа: найденные сейчас и сохранённые при смене процесса. */
-    private readonly listIssues: () => ChartIssue[],
-    private readonly logger: Logger,
-    private readonly options: PerformancePanelOptions = defaultOptions,
+    extensionUri: vscode.Uri,
+    state: MonitorState,
+    getWindowSeconds: () => number,
+    getRefreshIntervalSeconds: () => number,
+    listIssues: () => ChartIssue[],
+    logger: Logger,
+    options: PerformancePanelOptions = defaultOptions,
   ) {
+    this.extensionUri = extensionUri;
+    this.state = state;
+    this.getWindowSeconds = getWindowSeconds;
+    this.getRefreshIntervalSeconds = getRefreshIntervalSeconds;
+    this.listIssues = listIssues;
+    this.logger = logger;
+    this.options = options;
+
     this.disposables.push({ dispose: this.state.onDidChange(() => this.scheduleFlush()) });
   }
 
