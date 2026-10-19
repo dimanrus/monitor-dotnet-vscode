@@ -9,6 +9,12 @@
 - 🐛 Fixed a false "tool dotnet-trace is not installed" message when the tool was installed: global .NET tools are separate executables in `<home>/.dotnet/tools`, not `dotnet` subcommands, and the extension ran them as `dotnet dotnet-trace`
 - 🔎 The executable is now resolved through `PATH` and the dotnet tools directory, so a tool available in the terminal is also available here
 - ℹ️ The log reports the found path, and the **Learn more** button of the install prompt works in every language (it compared a hardcoded Russian label)
+- 🗄️ **Take Memory Dump** with `dotnet-dump` (Heap type): stacks and managed memory for `dotnet-dump analyze`
+- ⬇️ **Download Symbols for Dumps** with `dotnet-symbol`, so stack traces in a dump show function names
+- 🏷️ Profiling writes a ready `.speedscope.json` next to the `.nettrace`: the `.nettrace` stays as before, and the notification offers to open the Speedscope file
+- 🔎 **Open Speedscope Profile** button: opens the newest profile from the output folder, with a picker when there are several
+- 🧩 On the first opening the extension offers to install the [Speedscope viewer](https://marketplace.visualstudio.com/items?itemName=sransara.speedscope-in-vscode) and to add `"*.speedscope.json": "speedscope-in-vscode.speedscope"` to `workbench.editorAssociations`, so profiles open as a flame graph instead of JSON
+- 📁 Profiles, dumps and snapshots go to the `.monitor-dotnet` folder of the project by default, with a `.gitignore` inside so they never reach the repository
 
 ## [1.0.0] — 2026-10-14 🎉
 

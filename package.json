@@ -173,6 +173,24 @@
         "title": "%command.selectTarget.title%",
         "category": "Monitor Dotnet",
         "icon": "$(server-process)"
+      },
+      {
+        "command": "monitor-dotnet.collectMemoryDump",
+        "title": "%command.collectMemoryDump.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(file-binary)"
+      },
+      {
+        "command": "monitor-dotnet.downloadSymbols",
+        "title": "%command.downloadSymbols.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "monitor-dotnet.openSpeedscopeProfile",
+        "title": "%command.openSpeedscopeProfile.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(pulse)"
       }
     ],
     "menus": {
@@ -226,6 +244,21 @@
           "command": "monitor-dotnet.filterEnvironment",
           "when": "view == monitor-dotnet.environment",
           "group": "navigation@1"
+        },
+        {
+          "command": "monitor-dotnet.collectMemoryDump",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
+          "group": "monitoring@2"
+        },
+        {
+          "command": "monitor-dotnet.downloadSymbols",
+          "when": "view == monitor-dotnet.performance",
+          "group": "monitoring@6"
+        },
+        {
+          "command": "monitor-dotnet.openSpeedscopeProfile",
+          "when": "view == monitor-dotnet.performance",
+          "group": "monitoring@5"
         }
       ],
       "commandPalette": [

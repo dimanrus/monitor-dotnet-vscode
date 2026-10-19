@@ -188,9 +188,27 @@ Buttons in the Performance view title bar:
 | --- | --- | --- |
 | 🧵 **Collect Call Stack** | `dotnet-stack` | Call stack of every thread in a new editor tab |
 | 💾 **Get Memory Snapshot (GCDump)** | `dotnet-gcdump` | `.gcdump` file, revealed in the file manager |
-| ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` in Speedscope format |
+| 🗄️ **Take Memory Dump** | `dotnet-dump` | `.dmp` file of type Heap: stacks and managed memory for `dotnet-dump analyze` |
+| ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` **and** a ready `.speedscope.json` next to it |
+| 🔎 **Open Speedscope Profile** | — | Opens the newest `.speedscope.json` from the output folder (a picker appears if there are several) |
+| ⬇️ **Download Symbols for Dumps** | `dotnet-symbol` | PDB/DBG files next to the dumps, so stack traces show function names |
 
+Results go to the `.monitor-dotnet` folder of the project, together with a `.gitignore` that keeps them
+out of the repository. Set `monitor-dotnet.profilingOutputDirectory` to put them somewhere else.
 If a tool is missing, the extension offers to install it with one command (`dotnet tool install --global …`).
+
+When you open a profile for the first time, the extension offers to install
+[Speedscope in VS Code](https://marketplace.visualstudio.com/items?itemName=sransara.speedscope-in-vscode) and to add
+the editor association that makes `.speedscope.json` files open in that viewer:
+
+```jsonc
+"workbench.editorAssociations": {
+  "*.speedscope.json": "speedscope-in-vscode.speedscope"
+}
+```
+
+Both steps are optional — without the viewer the file opens as plain JSON, and the association can be added later by hand.
+
 
 ---
 

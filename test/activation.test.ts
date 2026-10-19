@@ -96,6 +96,7 @@ test('активация регистрирует команды, панели �
     'monitor-dotnet.attachToProcess',
     'monitor-dotnet.selectIssueInterval',
     'monitor-dotnet.selectTarget',
+    'monitor-dotnet.openSpeedscopeProfile',
     'monitor-dotnet.focusPerformance',
     'monitor-dotnet.clearData',
     'monitor-dotnet.collectCallStack',

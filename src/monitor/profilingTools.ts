@@ -1,12 +1,12 @@
 /**
- * Получение данных профилирования по требованию:
- * стек вызовов, снимок памяти и запуск профилирования.
- * Используются официальные средства .NET (`dotnet-stack`, `dotnet-gcdump`, `dotnet-trace`).
+ * Получение данных диагностики по требованию: стек вызовов, снимки памяти,
+ * дампы, запись счётчиков и профилирование.
+ * Используются официальные средства .NET: `dotnet-stack`, `dotnet-gcdump`, `dotnet-dump`,
+ * `dotnet-counters`, `dotnet-trace` и `dotnet-symbol`.
  */
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
-import os from 'node:os';
+import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
@@ -14,11 +14,21 @@ import { translate } from '../core/locale.ts';
 import { describeError } from '../core/errors.ts';
 import {
   CALL_STACK_TOOL,
+  DUMP_TOOL,
   MEMORY_SNAPSHOT_TOOL,
+  SYMBOL_TOOL,
   TRACE_TOOL,
   resolveToolPath,
   type DotnetTool,
 } from './dotnetToolLocator.ts';
+import {
+  hasSpeedscopeAssociation,
+  SPEEDSCOPE_FILE_PATTERN,
+  SPEEDSCOPE_VIEWER_EXTENSION,
+  withSpeedscopeAssociation,
+} from './editorAssociations.ts';
+import { listResultFiles, prepareOutputDirectory } from './outputDirectory.ts';
+import { speedscopeFileFor } from './toolArguments.ts';
 import type { Logger } from '../logger.ts';
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +36,12 @@ const execFileAsync = promisify(execFile);
 /** Обёртка над внешними инструментами диагностики. */
 export class ProfilingTools {
   private traceProcess: ChildProcess | undefined;
+
+  /**
+   * Предложения про просмотрщик показываем один раз за сессию:
+   * иначе они повторялись бы при каждом открытии профиля.
+   */
+  private speedscopeSetupOffered = false;
 
   private readonly logger: Logger;
 
@@ -83,6 +99,185 @@ export class ProfilingTools {
   }
 
   /**
+   * Открывает последний записанный профиль в формате Speedscope.
+   * Кнопка нужна, чтобы не искать файл вручную: `dotnet-trace` кладёт `.speedscope.json`
+   * рядом с трассировкой, и открыть его можно в любой момент после записи.
+   */
+  async openSpeedscopeProfile(outputDirectory: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const profiles = await listResultFiles(directory, '.speedscope.json');
+
+    if (profiles.length === 0) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no Speedscope profile found in {0}. Run performance profiling first.',
+        directory,
+      ));
+      return;
+    }
+
+    // Обычно нужен последний профиль, но выбор остаётся за пользователем.
+    const picked = profiles.length === 1
+      ? profiles[0]
+      : await vscode.window.showQuickPick(
+        profiles.map(profile => ({ label: path.basename(profile), profile })),
+        { title: translate('Open Speedscope profile'), placeHolder: translate('Newest profiles first') },
+      ).then(item => item?.profile);
+
+    if (picked === undefined) {
+      return;
+    }
+
+    // Перед открытием предлагаем просмотрщик: без него файл откроется как обычный JSON.
+    await this.ensureSpeedscopeViewer();
+
+    this.logger.info(translate('Opening Speedscope profile: {0}', picked));
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(picked));
+  }
+
+  /**
+   * Предлагает установить просмотрщик Speedscope и связать с ним файлы профилей.
+   * Оба шага необязательные: если пользователь откажется, профиль откроется как JSON.
+   */
+  private async ensureSpeedscopeViewer(): Promise<void> {
+    if (this.speedscopeSetupOffered) {
+      return;
+    }
+
+    this.speedscopeSetupOffered = true;
+    const installed = vscode.extensions.getExtension(SPEEDSCOPE_VIEWER_EXTENSION) !== undefined;
+    if (!installed) {
+      const install = translate('Install');
+      const action = await vscode.window.showInformationMessage(
+        translate(
+          'Monitor Dotnet: the Speedscope viewer shows .speedscope.json profiles inside VS Code. Install the extension?',
+        ),
+        install,
+      );
+
+      if (action === install) {
+        this.logger.info(translate('Installing the Speedscope viewer: {0}', SPEEDSCOPE_VIEWER_EXTENSION));
+        await vscode.commands.executeCommand('workbench.extensions.installExtension', SPEEDSCOPE_VIEWER_EXTENSION);
+      }
+    }
+
+    await this.ensureSpeedscopeAssociation();
+  }
+
+  /** Записывает ассоциацию `*.speedscope.json` в настройки рабочей области. */
+  private async ensureSpeedscopeAssociation(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('workbench');
+    const current = configuration.get<unknown>('editorAssociations');
+    if (hasSpeedscopeAssociation(current)) {
+      return;
+    }
+
+    const associate = translate('Associate .speedscope.json files');
+    const action = await vscode.window.showInformationMessage(
+      translate(
+        'Monitor Dotnet: open .speedscope.json profiles with the Speedscope viewer by default? This adds an editor association to the workspace settings.',
+      ),
+      associate,
+    );
+
+    if (action !== associate) {
+      return;
+    }
+
+    try {
+      await configuration.update('editorAssociations', withSpeedscopeAssociation(current));
+      this.logger.info(translate('Editor association added for {0}.', SPEEDSCOPE_FILE_PATTERN));
+    } catch (error) {
+      // Настройку могли запретить политикой — тогда подсказываем, что вписать вручную.
+      this.logger.warn(translate('Could not update editor associations: {0}', describeError(error)));
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: could not update the settings. Add "workbench.editorAssociations": { "*.speedscope.json": "speedscope-in-vscode.speedscope" } to your settings.json.',
+      ));
+    }
+  }
+
+  /**
+   * Снимает полный дамп памяти через `dotnet-dump`.
+   * Дамп нужен, когда приложение зависло или падает: его можно открыть в `dotnet-dump analyze`
+   * и посмотреть стеки, объекты и исключения.
+   */
+  async collectMemoryDump(pid: number, dotnetPath: string, outputDirectory: string): Promise<void> {
+    const target = path.join(await this.resolveOutputDirectory(outputDirectory), `dump-${pid}-${timestamp()}.dmp`);
+
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: taking a memory dump…') },
+      async () => {
+        // Тип Heap: меньше полного дампа, но содержит стеки и управляемую память.
+        const output = await this.runTool(DUMP_TOOL, dotnetPath, [
+          'collect',
+          '-p', pid.toString(),
+          '-o', target,
+          '--type', 'Heap',
+        ]);
+        if (output === undefined) {
+          return;
+        }
+
+        this.logger.info(translate('Memory dump saved: {0}', target));
+        await this.reportSavedFile(target, 'Memory dump saved: {0}');
+      },
+    );
+  }
+
+  /**
+   * Скачивает символы к дампу через `dotnet-symbol`.
+   * Без символов в дампе не видно имён функций, поэтому это обычный следующий шаг.
+   */
+  async downloadSymbols(dotnetPath: string, outputDirectory: string, dumpFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    if (this.dumpFilesIn(directory).length === 0 && dumpFile === undefined) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no memory dump found in {0}. Take a memory dump first.',
+        directory,
+      ));
+      return;
+    }
+
+    const files = dumpFile !== undefined ? [dumpFile] : this.dumpFilesIn(directory);
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: downloading symbols…') },
+      async () => {
+        for (const file of files) {
+          // `-o` складывает символы рядом с дампом, не засоряя каталог проекта.
+          const output = await this.runTool(SYMBOL_TOOL, dotnetPath, ['--symbols', '--modules', '-o', path.dirname(file), file]);
+          if (output === undefined) {
+            return;
+          }
+        }
+
+        this.logger.info(translate('Symbols downloaded for {0} file(s).', files.length));
+        void vscode.window.showInformationMessage(
+          translate('Monitor Dotnet: symbols downloaded for {0} dump(s).', files.length),
+        );
+      },
+    );
+  }
+
+  /** Дампы памяти в каталоге результатов: по ним ищутся файлы для скачивания символов. */
+  private dumpFilesIn(directory: string): string[] {
+    try {
+      return readdirSync(directory)
+        .filter(name => name.endsWith('.dmp'))
+        .map(name => path.join(directory, name));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Сообщает о сохранённом файле и предлагает показать его в проводнике. */
+  private async reportSavedFile(target: string, template: string): Promise<void> {
+    const reveal = translate('Reveal in Explorer');
+    const action = await vscode.window.showInformationMessage(translate(template, path.basename(target)), reveal);
+    if (action === reveal) {
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+    }
+  }
+
+  /**
    * Запускает запись профиля производительности.
    * Запись идёт до команды остановки — процесс `dotnet-trace` остаётся запущенным.
    */
@@ -117,8 +312,28 @@ export class ProfilingTools {
     child.stderr?.on('data', data => this.logger.raw(String(data).trimEnd()));
     child.on('exit', code => {
       this.traceProcess = undefined;
-      this.logger.info(translate('Profiling finished (code {0}). File: {1}', code ?? 'n/a', target));
-      void vscode.window.showInformationMessage(translate('Profile saved: {0}', target));
+      // `--format Speedscope` кладёт рядом готовый для speedscope.app файл.
+      const speedscope = speedscopeFileFor(target);
+      this.logger.info(translate(
+        'Profiling finished (code {0}). Trace: {1}. Speedscope: {2}',
+        code ?? 'n/a',
+        target,
+        speedscope,
+      ));
+
+      const open = translate('Open Speedscope profile');
+      const reveal = translate('Reveal in Explorer');
+      void vscode.window.showInformationMessage(
+        translate('Profile saved: {0}', path.basename(target)),
+        open,
+        reveal,
+      ).then(async action => {
+        if (action === open) {
+          await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(speedscope));
+        } else if (action === reveal) {
+          await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+        }
+      });
     });
 
     return target;
@@ -210,15 +425,17 @@ export class ProfilingTools {
     }
   }
 
-  /** Каталог для файлов дампа и профилей. */
+  /** Каталог для файлов дампа и профилей: по умолчанию `.monitor-dotnet` в папке проекта. */
   private async resolveOutputDirectory(configured: string): Promise<string> {
-    const directory = configured.length > 0
-      ? path.resolve(configured)
-      : path.join(os.tmpdir(), 'monitor-dotnet');
-
-    await mkdir(directory, { recursive: true });
+    const directory = await prepareOutputDirectory(configured, currentWorkspaceFolder());
+    this.logger.info(translate('Profiling output directory: {0}', directory));
     return directory;
   }
+}
+
+/** Папка проекта: в неё по умолчанию складываются результаты. */
+function currentWorkspaceFolder(): string | undefined {
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 /** Метка времени для имени файла: 2026-10-14-08-30-00. */

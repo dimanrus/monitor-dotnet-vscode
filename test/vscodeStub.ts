@@ -23,6 +23,10 @@ export interface VscodeStubRegistry {
   logLines: string[];
   /** Тексты уведомлений, показанных через `window.showInformationMessage` и предупреждения. */
   notifications: string[];
+  /** Команды, выполненные расширением: проверяются установка просмотрщика и открытие файла. */
+  executedCommands: Array<{ id: string; args: unknown[] }>;
+  /** Записанные изменения настроек: раздел, ключ и новое значение. */
+  configurationUpdates: Array<{ section: string; key: string; value: unknown }>;
   /** Эмуляция событий отладки: с их помощью тесты запускают обработку сессии отладки. */
   debugSessions: {
     start: (session: unknown) => void;
@@ -48,6 +52,15 @@ export interface VscodeStubOptions {
   quickPickSelector?: (items: readonly { label?: string; description?: string }[]) => unknown;
   /** Значения настроек: переопределяют значения по умолчанию в `getConfiguration().get`. */
   configuration?: Record<string, unknown>;
+  /** Папка проекта: от неё зависит каталог результатов профилирования. */
+  workspaceFolder?: string;
+  /** Какие расширения считаются установленными. */
+  installedExtensions?: readonly string[];
+  /**
+   * Ответ на уведомление с кнопками: возвращает выбранное действие или undefined.
+   * Нужен тестам, которые проверяют предложения установить расширение или поменять настройку.
+   */
+  notificationResponder?: (message: string, actions: readonly string[]) => string | undefined;
 }
 
 /** Заглушка webview: хранит разметку и отправленные сообщения. */
@@ -108,6 +121,8 @@ export function createVscodeStub(
     commandHandlers: new Map(),
     logLines: [],
     notifications: [],
+    executedCommands: [],
+    configurationUpdates: [],
     debugSessions: {
       start: () => undefined,
       terminate: () => undefined,
@@ -229,7 +244,10 @@ export function createVscodeStub(
         registry.commandHandlers.set(id, handler);
         return disposable();
       },
-      executeCommand: async (id: string, ...args: unknown[]) => registry.commandHandlers.get(id)?.(...args),
+      executeCommand: async (id: string, ...args: unknown[]) => {
+        registry.executedCommands.push({ id, args });
+        return registry.commandHandlers.get(id)?.(...args);
+      },
     },
     window: {
       createOutputChannel: (name: string) => {
@@ -254,9 +272,9 @@ export function createVscodeStub(
         registry.webviewViews.set(id, provider);
         return disposable();
       },
-      showInformationMessage: async (message: string) => {
+      showInformationMessage: async (message: string, ...actions: string[]) => {
         registry.notifications.push(message);
-        return undefined;
+        return options.notificationResponder?.(message, actions);
       },
       showWarningMessage: async (message: string) => {
         registry.notifications.push(message);
@@ -274,10 +292,15 @@ export function createVscodeStub(
       withProgress: async (_options: unknown, task: () => Promise<unknown>) => task(),
     },
     workspace: {
-      workspaceFolders: [],
-      getConfiguration: () => ({
+      workspaceFolders: options.workspaceFolder === undefined
+        ? []
+        : [{ uri: createUri(options.workspaceFolder), name: 'workspace', index: 0 }],
+      getConfiguration: (section?: string) => ({
         get: <T>(key: string, defaultValue: T): T =>
           (options.configuration?.[key] as T | undefined) ?? defaultValue,
+        update: async (key: string, value: unknown) => {
+          registry.configurationUpdates.push({ section: section ?? '', key, value });
+        },
       }),
       onDidChangeConfiguration: () => disposable(),
       openTextDocument: async () => ({}),
@@ -292,6 +315,10 @@ export function createVscodeStub(
         registry.debugSessions.terminate = listener;
         return disposable();
       },
+    },
+    extensions: {
+      getExtension: (id: string) =>
+        (options.installedExtensions ?? []).includes(id) ? { id, isActive: false } : undefined,
     },
     env: {
       language: options.language ?? 'en',

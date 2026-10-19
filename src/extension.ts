@@ -254,6 +254,23 @@ export function activate(context: vscode.ExtensionContext): void {
       await profiling.stopProfiling();
       await vscode.commands.executeCommand('setContext', 'monitor-dotnet.isProfiling', false);
     }),
+    // Полный дамп памяти: нужен, когда приложение зависло или падает.
+    vscode.commands.registerCommand('monitor-dotnet.collectMemoryDump', async () => {
+      const pid = requirePid(controller);
+      if (pid === undefined) {
+        return;
+      }
+
+      await profiling.collectMemoryDump(pid, settings.dotnetPath, settings.profilingOutputDirectory);
+    }),
+    // Открыть последний профиль Speedscope: файл лежит в каталоге результатов.
+    vscode.commands.registerCommand('monitor-dotnet.openSpeedscopeProfile', async () => {
+      await profiling.openSpeedscopeProfile(settings.profilingOutputDirectory);
+    }),
+    // Символы к дампу: без них в дампе не видно имён функций.
+    vscode.commands.registerCommand('monitor-dotnet.downloadSymbols', async () => {
+      await profiling.downloadSymbols(settings.dotnetPath, settings.profilingOutputDirectory);
+    }),
   );
 
   logger.info(translate('Monitor Dotnet extension activated.'));

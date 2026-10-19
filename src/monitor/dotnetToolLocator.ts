@@ -42,6 +42,18 @@ export const TRACE_TOOL: DotnetTool = {
   purpose: 'performance profiling',
 };
 
+export const DUMP_TOOL: DotnetTool = {
+  command: 'dotnet-dump',
+  packageName: 'dotnet-dump',
+  purpose: 'taking a memory dump',
+};
+
+export const SYMBOL_TOOL: DotnetTool = {
+  command: 'dotnet-symbol',
+  packageName: 'dotnet-symbol',
+  purpose: 'downloading symbols',
+};
+
 /**
  * Окружение поиска. Вынесено отдельно, чтобы тесты не зависели от содержимого диска
  * и от переменных окружения машины.
