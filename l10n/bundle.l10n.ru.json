@@ -127,6 +127,8 @@
   "Threads": "Потоки",
   "Time in GC": "Время в GC",
   "Tool {0} failed": "Инструмент {0} завершился с ошибкой",
+  "Tool {0} found: {1}": "Инструмент {0} найден: {1}",
+  "Tool {0} was not found in PATH or in the dotnet tools directory.": "Инструмент {0} не найден ни в PATH, ни в каталоге инструментов dotnet.",
   "Turn on the monitor-dotnet.enableIssueDetection setting to look for issues.": "Включите настройку monitor-dotnet.enableIssueDetection, чтобы искать проблемы.",
   "Value copied to clipboard": "Значение скопировано в буфер обмена",
   "Waiting for data…": "Ожидание данных…",

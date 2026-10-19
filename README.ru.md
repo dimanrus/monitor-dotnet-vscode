@@ -4,7 +4,7 @@
 
 <h1 align="center">🔍 Monitor Dotnet</h1>
 
-![Версия 1.0.0](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)
+![Версия 1.1.0](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)
 ![.NET net10.0](https://img.shields.io/badge/.NET-net10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![Лицензия MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
@@ -287,8 +287,8 @@ EventPipe, — поэтому язык приложения не важен.
 npm install
 npm run bridge:build   # публикация моста в media/bridge и dist/bridge
 npm run build          # сборка расширения и панели графиков
-npm run package        # создание monitor-dotnet-1.0.0.vsix
-code --install-extension monitor-dotnet-1.0.0.vsix
+npm run package        # создание monitor-dotnet-1.1.0.vsix
+code --install-extension monitor-dotnet-1.1.0.vsix
 ```
 
 Полезные команды:

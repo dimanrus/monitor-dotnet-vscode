@@ -2,19 +2,13 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
-## [Unreleased]
+## [1.1.0] — 2026-10-19 🛠️
 
-Work in progress for the next release.
+### 🛠 Profiling on demand
 
-### 🏗️ Architecture
-
-- 📌 `@types/vscode` pinned to the declared minimum (1.100.0) instead of a range: the compiler now rejects APIs newer than 1.100, so the promised support for VS Code 1.100 is enforced by the build
-- 🖥️ The README requirements say the minimum is checked while building, not just declared
-
-### 🧪 Quality
-
-- 🧱 `erasableSyntaxOnly` is enabled: the source may only use syntax Node can strip, and constructor parameter properties were replaced with plain fields
-- 🎯 The CPU overload check of the end-to-end suite no longer depends on machine load: it asks the detection rule whether it should fire and, on a busy machine, reports that the load never reached the threshold instead of failing
+- 🐛 Fixed a false "tool dotnet-trace is not installed" message when the tool was installed: global .NET tools are separate executables in `<home>/.dotnet/tools`, not `dotnet` subcommands, and the extension ran them as `dotnet dotnet-trace`
+- 🔎 The executable is now resolved through `PATH` and the dotnet tools directory, so a tool available in the terminal is also available here
+- ℹ️ The log reports the found path, and the **Learn more** button of the install prompt works in every language (it compared a hardcoded Russian label)
 
 ## [1.0.0] — 2026-10-14 🎉
 

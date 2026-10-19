@@ -12,37 +12,16 @@ import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import { translate } from '../core/locale.ts';
 import { describeError } from '../core/errors.ts';
+import {
+  CALL_STACK_TOOL,
+  MEMORY_SNAPSHOT_TOOL,
+  TRACE_TOOL,
+  resolveToolPath,
+  type DotnetTool,
+} from './dotnetToolLocator.ts';
 import type { Logger } from '../logger.ts';
 
 const execFileAsync = promisify(execFile);
-
-/** Инструмент .NET, нужный для получения данных. */
-export interface DotnetTool {
-  /** Имя команды, например `dotnet-stack`. */
-  command: string;
-  /** Имя пакета для `dotnet tool install -g`. */
-  packageName: string;
-  /** Что делает инструмент — для сообщений пользователю. */
-  purpose: string;
-}
-
-export const CALL_STACK_TOOL: DotnetTool = {
-  command: 'dotnet-stack',
-  packageName: 'dotnet-stack',
-  purpose: 'collecting a call stack',
-};
-
-export const MEMORY_SNAPSHOT_TOOL: DotnetTool = {
-  command: 'dotnet-gcdump',
-  packageName: 'dotnet-gcdump',
-  purpose: 'taking a memory snapshot',
-};
-
-export const TRACE_TOOL: DotnetTool = {
-  command: 'dotnet-trace',
-  packageName: 'dotnet-trace',
-  purpose: 'performance profiling',
-};
 
 /** Обёртка над внешними инструментами диагностики. */
 export class ProfilingTools {
@@ -119,9 +98,13 @@ export class ProfilingTools {
       return undefined;
     }
 
+    const executable = await this.locateTool(TRACE_TOOL, dotnetPath);
+    if (executable === undefined) {
+      return undefined;
+    }
+
     this.logger.info(translate('Starting profiling: dotnet-trace collect -p {0} -o {1}', pid, target));
-    const child = spawn(dotnetPath, [
-      TRACE_TOOL.command,
+    const child = spawn(executable, [
       'collect',
       '-p', pid.toString(),
       '-o', target,
@@ -170,39 +153,59 @@ export class ProfilingTools {
     dotnetPath: string,
     args: readonly string[],
   ): Promise<string | undefined> {
+    const executable = await this.locateTool(tool, dotnetPath);
+    if (executable === undefined) {
+      return undefined;
+    }
+
     try {
-      const { stdout, stderr } = await execFileAsync(dotnetPath, [tool.command, ...args], {
-        maxBuffer: 32 * 1024 * 1024,
-      });
+      // Глобальные инструменты — отдельные исполняемые файлы, а не подкоманды `dotnet`.
+      const { stdout, stderr } = await execFileAsync(executable, args, { maxBuffer: 32 * 1024 * 1024 });
       return [stdout, stderr].filter(part => part.trim().length > 0).join('\n');
     } catch (error) {
       const text = describeError(error);
       this.logger.error(translate('Tool {0} failed', tool.command), error);
-
-      if (isMissingToolError(text)) {
-        await this.suggestInstall(tool);
-        return undefined;
-      }
-
       void vscode.window.showErrorMessage(translate('Monitor Dotnet: {0} failed — {1}', tool.purpose, text));
       return undefined;
     }
   }
 
+  /**
+   * Ищет исполняемый файл инструмента и предлагает установку, если его нет.
+   * Путь ищется в PATH и в каталоге глобальных инструментов: расширение VS Code
+   * не наследует PATH терминала, поэтому полагаться только на него нельзя.
+   */
+  private async locateTool(tool: DotnetTool, dotnetPath: string): Promise<string | undefined> {
+    const executable = resolveToolPath(tool);
+    if (executable !== undefined) {
+      this.logger.info(translate('Tool {0} found: {1}', tool.command, executable));
+      return executable;
+    }
+
+    this.logger.warn(translate(
+      'Tool {0} was not found in PATH or in the dotnet tools directory.',
+      tool.command,
+    ));
+    await this.suggestInstall(tool, dotnetPath);
+    return undefined;
+  }
+
   /** Предлагает установить отсутствующий инструмент. */
-  private async suggestInstall(tool: DotnetTool): Promise<void> {
+  private async suggestInstall(tool: DotnetTool, dotnetPath: string): Promise<void> {
     const install = translate('Install');
+    const learnMore = translate('Learn more');
     const action = await vscode.window.showWarningMessage(
       translate('Monitor Dotnet: tool {0} is not installed (needed for {1}).', tool.command, tool.purpose),
       install,
-      translate('Learn more'),
+      learnMore,
     );
 
     if (action === install) {
       const terminal = vscode.window.createTerminal(translate('Monitor Dotnet: installing {0}', tool.command));
       terminal.show();
-      terminal.sendText(`dotnet tool install --global ${tool.packageName}`);
-    } else if (action === 'Подробнее') {
+      // Кавычки нужны, если путь к dotnet содержит пробелы.
+      terminal.sendText(`"${dotnetPath}" tool install --global ${tool.packageName}`);
+    } else if (action === learnMore) {
       await vscode.env.openExternal(vscode.Uri.parse('https://learn.microsoft.com/dotnet/core/diagnostics/'));
     }
   }
@@ -216,15 +219,6 @@ export class ProfilingTools {
     await mkdir(directory, { recursive: true });
     return directory;
   }
-}
-
-/** Признак того, что инструмент не найден (а не ошибка его работы). */
-function isMissingToolError(text: string): boolean {
-  const lower = text.toLowerCase();
-  return lower.includes('no such file')
-    || lower.includes('не удается найти')
-    || lower.includes('not found')
-    || lower.includes('не является внутренней или внешней командой');
 }
 
 /** Метка времени для имени файла: 2026-10-14-08-30-00. */
