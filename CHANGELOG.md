@@ -4,6 +4,14 @@
 
 ## [Unreleased] 🧠
 
+### 🐛 Process detection
+
+- 🐛 Fixed monitoring that never started on some Windows machines: the start time of .NET processes was always read as unknown (Windows PowerShell 5.1 serialises `CreationDate` as `/Date(…)`, which `Date.parse` rejects), so every candidate looked like it started before the debug session and the target was dropped after 20 s
+- ⌛ The start time is now computed inside PowerShell as Unix milliseconds, with a fallback parser for the old `CreationDate` formats
+- 🧩 When the OS reports no start time at all, the target is still found by an exact path to the program or assembly — after a short delay and only if the next poll confirms the same process
+- 🧹 Avalonia design-time services (`Avalonia.BuildServices`, `Avalonia.Designer.HostApp`) are no longer treated as .NET candidates
+- 📋 The log now reports how many found processes have an unknown start time
+
 ### 🧠 Memory dump analysis
 
 - 🧠 **Analyse Memory Dump** button: runs `dotnet-dump analyze` on the newest `.dmp` from the output folder and opens a graphical report

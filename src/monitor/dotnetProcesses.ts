@@ -42,6 +42,10 @@ const IGNORED_COMMAND_FRAGMENTS = [
   'MSBuild.dll',
   'NuGet.Mcp.Server',
   'VSTest.Console',
+  // Службы времени разработки Avalonia: компилятор XAML запускает само приложение,
+  // поэтому в списке процессов появляется его apphost — но целью отладки он не является.
+  'Avalonia.BuildServices',
+  'Avalonia.Designer.HostApp',
 ];
 
 /** Окружение, от которого зависит распознавание .NET-процесса. Вынесено отдельно для тестов. */
@@ -265,9 +269,22 @@ async function listMacProcesses(): Promise<ProcessCandidate[]> {
   return candidates;
 }
 
-/** Windows: запрашиваем у CIM список процессов с командной строкой. */
+/** Windows: запрашиваем у CIM список процессов с командной строкой и временем старта. */
 async function listWindowsProcesses(): Promise<ProcessCandidate[]> {
-  const script = 'Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine,ExecutablePath,CreationDate | ConvertTo-Json -Compress';
+  // Время старта считаем уже в PowerShell: Windows PowerShell 5.1 сериализует DateTime
+  // как `/Date(1762…)/`, а `Date.parse` такие строки не понимает. В результате время старта
+  // становилось неизвестным, и процесс отбрасывался как «запущенный не вместе с сессией».
+  const script = [
+    'Get-CimInstance Win32_Process',
+    "| Select-Object ProcessId,Name,CommandLine,ExecutablePath,@{Name='StartTimeMs';Expression={",
+    '  $created = $_.CreationDate',
+    '  if ($created -is [datetime]) {',
+    '    [long](($created.ToUniversalTime() - [datetime]::new(1970, 1, 1)).TotalMilliseconds)',
+    '  } else { 0 }',
+    '}}',
+    '| ConvertTo-Json -Compress',
+  ].join(' ');
+
   const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     maxBuffer: 32 * 1024 * 1024,
   });
@@ -277,7 +294,14 @@ async function listWindowsProcesses(): Promise<ProcessCandidate[]> {
   const candidates: ProcessCandidate[] = [];
 
   for (const item of items) {
-    const record = item as { ProcessId?: number; Name?: string; CommandLine?: string; ExecutablePath?: string; CreationDate?: string };
+    const record = item as {
+      ProcessId?: number;
+      Name?: string;
+      CommandLine?: string;
+      ExecutablePath?: string;
+      StartTimeMs?: unknown;
+      CreationDate?: unknown;
+    };
     if (typeof record.ProcessId !== 'number') {
       continue;
     }
@@ -286,10 +310,49 @@ async function listWindowsProcesses(): Promise<ProcessCandidate[]> {
       pid: record.ProcessId,
       name: record.Name ?? '',
       commandLine: record.CommandLine ?? record.Name ?? '',
-      startTimeMs: record.CreationDate ? Date.parse(record.CreationDate) || 0 : 0,
+      startTimeMs: windowsStartTimeMs(record),
       executablePath: record.ExecutablePath ?? '',
     });
   }
 
   return candidates;
+}
+
+/**
+ * Время старта процесса из записи CIM.
+ *
+ * Основной путь — целое число миллисекунд, которое считает сам PowerShell.
+ * Остальные варианты нужны для совместимости: старые версии Windows PowerShell могли
+ * вернуть `CreationDate` строкой в формате `/Date(1762…)/` или в ISO 8601.
+ */
+export function windowsStartTimeMs(record: { StartTimeMs?: unknown; CreationDate?: unknown }): number {
+  const fromNumber = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+
+  const direct = fromNumber(record.StartTimeMs);
+  if (direct > 0) {
+    return direct;
+  }
+
+  if (typeof record.StartTimeMs === 'string' && /^\d{10,}$/.test(record.StartTimeMs)) {
+    return Number(record.StartTimeMs);
+  }
+
+  const created = record.CreationDate;
+  if (typeof created === 'number') {
+    return fromNumber(created);
+  }
+
+  if (typeof created !== 'string' || created.length === 0) {
+    return 0;
+  }
+
+  // Формат WCF/Windows PowerShell: `/Date(1762310942182)/` или `/Date(1762310942182+0300)/`.
+  const wcf = /\/Date\((-?\d+)/.exec(created);
+  if (wcf !== null) {
+    return fromNumber(Number(wcf[1]));
+  }
+
+  const parsed = Date.parse(created);
+  return Number.isNaN(parsed) ? 0 : fromNumber(parsed);
 }

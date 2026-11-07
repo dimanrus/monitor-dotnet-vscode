@@ -40,6 +40,13 @@ const DEBUGGEE_SEARCH_TIMEOUT_MS = 20_000;
 /** Интервал повторных попыток поиска процесса. */
 const DEBUGGEE_SEARCH_INTERVAL_MS = 500;
 
+/**
+ * Пауза перед тем, как начать полагаться на процессы с неизвестным временем старта.
+ * Служебные процессы (компиляторы XAML, хот-релоад) появляются раньше настоящей цели,
+ * поэтому спешить с подключением нельзя.
+ */
+const DEBUGGEE_UNCERTAIN_START_DELAY_MS = 3_000;
+
 export function activate(context: vscode.ExtensionContext): void {
   // Язык интерфейса и перевод строк подключаем до создания любых сообщений.
   activateLocalization();
@@ -680,12 +687,26 @@ async function resolveDebuggeePid(
   };
 
   const deadline = sessionStartMs + DEBUGGEE_SEARCH_TIMEOUT_MS;
+  // Процесс с неизвестным временем старта принимаем только после паузы и только если он
+  // остался той же целью на следующем опросе: так мы не цепляемся к служебному процессу,
+  // который вот-вот заменит настоящая цель отладки.
+  let uncertainPid: number | undefined;
   let candidates = await listDotnetProcesses();
   while (Date.now() < deadline) {
     const found = selectDebuggeePid(candidates, hints);
     if (found !== undefined) {
       logger.info(translate('Debuggee process found: PID {0}.', found));
       return found;
+    }
+
+    if (Date.now() - sessionStartMs >= DEBUGGEE_UNCERTAIN_START_DELAY_MS) {
+      const uncertain = selectDebuggeePid(candidates, { ...hints, allowUncertainStart: true });
+      if (uncertain !== undefined && uncertain === uncertainPid) {
+        logger.warn(translate('Process start time is unknown; monitoring attaches to PID {0}.', uncertain));
+        return uncertain;
+      }
+
+      uncertainPid = uncertain;
     }
 
     // Процесс отладки мог ещё не появиться — ждём и пробуем снова.
@@ -695,7 +716,7 @@ async function resolveDebuggeePid(
 
   // Точную цель найти не удалось: берём самый поздний подходящий процесс,
   // чтобы мониторинг всё же заработал.
-  const fallback = selectDebuggeePid(candidates, { ...hints, allowFallback: true });
+  const fallback = selectDebuggeePid(candidates, { ...hints, allowFallback: true, allowUncertainStart: true });
   if (fallback !== undefined) {
     logger.warn(translate('Exact match not found; monitoring attaches to process {0}.', fallback));
     return fallback;
@@ -709,6 +730,15 @@ async function resolveDebuggeePid(
     hints.program ?? '—',
     hints.cwd ?? '—',
   ));
+  const withoutStartTime = candidates.filter(candidate => candidate.startTimeMs <= 0).length;
+  if (withoutStartTime > 0) {
+    logger.warn(translate(
+      '{0} of {1} .NET processes did not report a start time; they are matched only by an exact program path.',
+      withoutStartTime,
+      candidates.length,
+    ));
+  }
+
   for (const candidate of candidates.slice(0, 10)) {
     const started = candidate.startTimeMs > 0
       ? new Date(candidate.startTimeMs).toISOString()

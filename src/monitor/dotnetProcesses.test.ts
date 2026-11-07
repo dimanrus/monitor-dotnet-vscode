@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isDotnetCandidate, isIgnored, type DotnetDetectionEnvironment } from './dotnetProcesses.ts';
+import {
+  isDotnetCandidate,
+  isIgnored,
+  windowsStartTimeMs,
+  type DotnetDetectionEnvironment,
+} from './dotnetProcesses.ts';
 import type { ProcessCandidate } from '../core/debuggeeMatching.ts';
 
 /** Окружение без доступа к диску: наличие сборки задаётся явно. */
@@ -89,4 +94,32 @@ test('инфраструктура Aspire не попадает в кандид�
   assert.equal(isIgnored(candidate('/home/user/.dotnet/tools/.store/aspire.cli/13.6.1/dcp/dcp start-apiserver')), true);
   // Сам проект AppHost при этом остаётся кандидатом.
   assert.equal(isIgnored(candidate('/repo/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost')), false);
+});
+
+test('службы времени разработки Avalonia не считаются целью отладки', () => {
+  // Регрессия: компилятор XAML запускает само приложение, и его apphost попадал в кандидаты.
+  assert.equal(isIgnored(candidate(
+    'dotnet exec --runtimeconfig C:\\Users\\u\\.nuget\\packages\\avalonia.buildservices\\11.3.2\\tools\\netstandard2.0\\runtimeconfig.json ' +
+      'C:\\repo\\Rupor.Desktop\\bin\\Debug\\net10.0\\Rupor.Desktop.exe',
+  )), true);
+  // Само приложение остаётся кандидатом.
+  assert.equal(isIgnored(candidate('C:\\repo\\Rupor.Desktop\\bin\\Debug\\net10.0\\Rupor.Desktop.exe')), false);
+});
+
+test('время старта берётся из миллисекунд, которые считает PowerShell', () => {
+  assert.equal(windowsStartTimeMs({ StartTimeMs: 1_762_310_942_182 }), 1_762_310_942_182);
+  assert.equal(windowsStartTimeMs({ StartTimeMs: '1762310942182' }), 1_762_310_942_182);
+});
+
+test('время старта понимает формат Windows PowerShell 5.1 (регрессия)', () => {
+  // Раньше `Date.parse('/Date(1762310942182)/')` давал NaN, время старта считалось
+  // неизвестным, и процесс отбрасывался — мониторинг не запускался.
+  assert.equal(windowsStartTimeMs({ CreationDate: '/Date(1762310942182)/' }), 1_762_310_942_182);
+  assert.equal(windowsStartTimeMs({ CreationDate: '/Date(1762310942182+0300)/' }), 1_762_310_942_182);
+});
+
+test('время старта понимает ISO-строку и отсутствие данных', () => {
+  assert.equal(windowsStartTimeMs({ CreationDate: '2026-11-05T12:30:42.182Z' }), Date.parse('2026-11-05T12:30:42.182Z'));
+  assert.equal(windowsStartTimeMs({}), 0);
+  assert.equal(windowsStartTimeMs({ CreationDate: null, StartTimeMs: 0 }), 0);
 });

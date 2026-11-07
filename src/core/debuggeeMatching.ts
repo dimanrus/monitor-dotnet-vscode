@@ -43,6 +43,15 @@ export interface DebuggeeHints {
   /** Процессы, которые нельзя выбирать (например, сам мост). */
   excludePids: readonly number[];
   /**
+   * Разрешить выбор процесса, время старта которого неизвестно.
+   *
+   * Некоторые платформы сообщают время запуска не для всех процессов (нет прав, старые версии
+   * Windows). Раньше такие процессы отбрасывались как «запущенные не вместе с сессией», и цель
+   * не находилась никогда. Здесь мы всё равно требуем точного совпадения по программе или сборке,
+   * иначе легко подключиться к постороннему процессу.
+   */
+  allowUncertainStart?: boolean;
+  /**
    * Разрешить выбор процесса без совпадения по программе.
    * Включается только в самом конце поиска, когда точную цель найти не удалось.
    */
@@ -97,10 +106,20 @@ export function selectDebuggeePid(
     return byProgram;
   }
 
+  // Второй проход — процессы с неизвестным временем старта. Признак «свежести» проверять
+  // нечем, поэтому требуем точного совпадения с путём к программе или именем сборки.
+  const unknownStart = hints.allowUncertainStart === true
+    ? available.filter(candidate => candidate.startTimeMs <= 0)
+    : [];
+  const byProgramUnknown = matchByProgram(unknownStart, hints, STRONG_NEEDLE_WEIGHT);
+  if (byProgramUnknown !== undefined) {
+    return byProgramUnknown;
+  }
+
   const hasProgramHint = Boolean(hints.program || hints.projectPath || hints.cwd);
   if (!hasProgramHint || hints.allowFallback === true) {
     // Подсказок нет (или поиск уже исчерпал время): берём самый поздний из подходящих процессов.
-    return newest(fresh)?.pid;
+    return (newest(fresh) ?? newest(unknownStart))?.pid;
   }
 
   return undefined;
@@ -128,6 +147,7 @@ function isStartedWithSession(candidate: ProcessCandidate, sessionStartMs: numbe
 function matchByProgram(
   candidates: readonly ProcessCandidate[],
   hints: DebuggeeHints,
+  minScore = 1,
 ): number | undefined {
   const needles = buildNeedles(hints);
   if (needles.length === 0) {
@@ -144,7 +164,8 @@ function matchByProgram(
       }
     }
 
-    if (score === 0) {
+    // Признаки слабее `minScore` (например, только рабочий каталог) цель не подтверждают.
+    if (score < minScore) {
       continue;
     }
 
@@ -171,6 +192,12 @@ interface Needle {
   value: string;
   weight: number;
 }
+
+/**
+ * Вес признака, который подтверждает цель сам по себе: путь к программе, имя сборки или проекта.
+ * Используется как минимум оценки там, где нельзя проверить время старта процесса.
+ */
+const STRONG_NEEDLE_WEIGHT = 3;
 
 /**
  * Собирает признаки для сопоставления.

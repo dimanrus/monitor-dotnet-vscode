@@ -142,6 +142,46 @@ test('процесс без времени старта не выбираетс�
   assert.equal(pid, undefined);
 });
 
+test('allowUncertainStart находит цель, если время старта неизвестно (регрессия)', () => {
+  // Случай с Windows: CIM не сообщил CreationDate, время старта осталось нулевым,
+  // и мониторинг не запускался вовсе — в логе было «start time unknown».
+  const pid = selectDebuggeePid([candidate(41, `/usr/bin/dotnet ${program}`, 0)], {
+    program,
+    sessionStartMs,
+    excludePids: [],
+    allowUncertainStart: true,
+  });
+
+  assert.equal(pid, 41);
+});
+
+test('allowUncertainStart не выбирает процесс только по рабочему каталогу', () => {
+  // Слабый признак (каталог) без времени старта цель не подтверждает.
+  const pid = selectDebuggeePid([candidate(42, '/usr/bin/dotnet /other/Unknown.dll', 0)], {
+    program,
+    cwd: '/repo/samples/SampleApp',
+    sessionStartMs,
+    excludePids: [],
+    allowUncertainStart: true,
+  });
+
+  assert.equal(pid, undefined);
+});
+
+test('свежий процесс по-прежнему важнее процесса с неизвестным временем старта', () => {
+  const pid = selectDebuggeePid([
+    candidate(43, `/usr/bin/dotnet ${program}`, 0),
+    candidate(44, `/usr/bin/dotnet ${program}`, sessionStartMs + 1_000),
+  ], {
+    program,
+    sessionStartMs,
+    excludePids: [],
+    allowUncertainStart: true,
+  });
+
+  assert.equal(pid, 44);
+});
+
 // ─── Сценарии Aspire и C# Dev Kit ───
 // Данные для этих проверок сняты с живого дерева процессов: Aspire CLI запускает проект
 // AppHost, а сервисы — через `dotnet run --project`, поэтому рядом оказывается много процессов .NET.
