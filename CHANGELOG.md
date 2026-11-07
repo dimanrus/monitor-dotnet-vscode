@@ -2,7 +2,7 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
-## [Unreleased] 🧰
+## [1.2.0] — 2026-11-07 🐛
 
 ### 🧠 Memory snapshots
 
@@ -27,8 +27,6 @@
 - ➕ **Add to Collection Filter** on any counter, meter or group in the **Counters** view: the setting is updated for you
 - 📤 **Record Counters to File** with `dotnet-counters collect`: CSV or JSON for 30 seconds, 1 minute or 5 minutes
 - 🏷️ **Add Line Numbers to Stack Trace** with `dotnet-stack symbolicate`: resolves method tokens from a stack trace in the editor
-
-## [1.2.0] — 2026-11-07 🐛
 
 ### 🐛 Process detection
 
