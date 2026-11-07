@@ -4,7 +4,7 @@
 
 <h1 align="center">🔍 Monitor Dotnet</h1>
 
-![Версия 1.1.0](https://img.shields.io/badge/version-1.1.0-blue?style=flat-square)
+![Версия 1.2.0](https://img.shields.io/badge/version-1.2.0-blue?style=flat-square)
 ![.NET net10.0](https://img.shields.io/badge/.NET-net10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![Лицензия MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
@@ -210,6 +210,10 @@ EventPipe, — поэтому язык приложения не важен.
 а в длинных списках есть поиск и постраничный вывод. Раздел **Детали** оставляет только
 исходный вывод SOS, а кнопка **Открыть текстовый отчёт** показывает полный отчёт в редакторе.
 
+<p align="center">
+  <img src="resources/screenshots/dump-analysis.png" alt="Разбор дампа памяти: сегменты кучи GC с занятой и зарезервированной памятью, куча по типам и состав кучи с таблицей типов и фильтром" width="900">
+</p>
+
 Дамп — это один момент времени, а не интервал: панель показывает состояние процесса на момент снятия дампа.
 В шапке отдельно указаны время и размер файла дампа и время создания отчёта. Живые графики CPU и памяти
 в панели Performance — это временные ряды, а страница дампа — один снимок.
@@ -327,8 +331,8 @@ EventPipe, — поэтому язык приложения не важен.
 npm install
 npm run bridge:build   # публикация моста в media/bridge и dist/bridge
 npm run build          # сборка расширения и панели графиков
-npm run package        # создание monitor-dotnet-1.1.0.vsix
-code --install-extension monitor-dotnet-1.1.0.vsix
+npm run package        # создание monitor-dotnet-1.2.0.vsix
+code --install-extension monitor-dotnet-1.2.0.vsix
 ```
 
 Полезные команды:

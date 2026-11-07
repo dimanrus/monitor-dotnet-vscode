@@ -2,7 +2,7 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
-## [Unreleased] 🧠
+## [1.2.0] — 2026-11-07 🐛
 
 ### 🐛 Process detection
 
