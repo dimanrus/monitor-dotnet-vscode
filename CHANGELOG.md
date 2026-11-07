@@ -2,6 +2,23 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
+## [Unreleased] 🧠
+
+### 🧠 Memory dump analysis
+
+- 🧠 **Analyse Memory Dump** button: runs `dotnet-dump analyze` on the newest `.dmp` from the output folder and opens a graphical report
+- 🧩 Presets for common questions: threads, heap by type, async and thread pool, exceptions, locks and the finalization queue
+- 📊 Graphical panel styled like VS Code: overview metrics, automatic findings, a heap composition bar, a filterable type table sortable by size or object count, thread pool and thread stats
+- 🧠 Analysis also adds async state machine and exception tables plus GC allocated/committed usage
+- �️ **Dumps** view with every `.dmp` from the output folder: click to analyse, reveal in the Explorer or compare
+- 🔀 **Compare Dumps…** shows heap, object, thread, async and exception deltas plus the types that grew or shrank the most
+- �🕒 The header shows when the dump was taken and its size, separately from the report creation time
+- 🗂️ The full SOS output stays available in collapsible blocks, and **Open text report** shows the complete report in an editor
+- 🧵 Every command gets its own interactive panel above: a `clrthreads` table, GC segment sizes, expandable stacks with application frames highlighted, sync blocks, exception cards and the finalization queue grouped by type. Commands shared by several presets are shown once, and **Details** keeps only the raw SOS output
+- 🎛️ Every panel collapses with a click, and all long lists have search and paging (25 table rows, 8 thread stacks or 5 exception cards per page), so a large dump stays readable
+- � Every selected preset now runs in its own `dotnet-dump analyze` session: the tool does not echo commands in non-interactive mode, so previously all output landed in the first section and the rest showed "No data"
+- �🖱️ Any `.dmp` can also be analysed from the Explorer context menu, including dumps taken outside VS Code
+
 ## [1.1.0] — 2026-10-19 🛠️
 
 ### 🛠 Profiling on demand

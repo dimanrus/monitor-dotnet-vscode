@@ -42,6 +42,19 @@ const webviewOptions: BuildOptions = {
   logLevel: 'info',
 };
 
+/** Панель разбора дампа: отдельный бандл, чтобы не тянуть графики Performance. */
+const dumpWebviewOptions: BuildOptions = {
+  entryPoints: [path.join(root, 'src', 'webview', 'dump.ts')],
+  outfile: path.join(root, 'dist', 'webview', 'dump.js'),
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  target: 'es2022',
+  sourcemap: !production,
+  minify: production,
+  logLevel: 'info',
+};
+
 /**
  * Копирует собранный мост рядом с расширением, если он уже был опубликован.
  * Так расширение работает без сборки .NET-проекта у пользователя.
@@ -86,15 +99,19 @@ async function copyDirectory(from: string, to: string): Promise<number> {
 
 async function main(): Promise<void> {
   if (watch) {
-    const contexts = await Promise.all([context(extensionOptions), context(webviewOptions)]);
+    const contexts = await Promise.all([
+      context(extensionOptions),
+      context(webviewOptions),
+      context(dumpWebviewOptions),
+    ]);
     await Promise.all(contexts.map(item => item.watch()));
     console.log('Сборка расширения и панели графиков запущена в режиме наблюдения.');
     return;
   }
 
-  await Promise.all([build(extensionOptions), build(webviewOptions)]);
+  await Promise.all([build(extensionOptions), build(webviewOptions), build(dumpWebviewOptions)]);
   await copyBridgeIfPresent();
-  console.log('Собрано: dist/extension.cjs, dist/webview/charts.js, dist/webview/charts.css');
+  console.log('Собрано: dist/extension.cjs, dist/webview/charts.js, dist/webview/charts.css, dist/webview/dump.js, dist/webview/dump.css');
 }
 
 await main();

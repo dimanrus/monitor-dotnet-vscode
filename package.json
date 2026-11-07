@@ -46,6 +46,7 @@
     "onDebugResolve:dotnet",
     "onDebugResolve:clr",
     "onView:monitor-dotnet.performance",
+    "onView:monitor-dotnet.dumps",
     "onView:monitor-dotnet.counters",
     "onView:monitor-dotnet.environment",
     "onCommand:monitor-dotnet.startMonitoring",
@@ -69,6 +70,12 @@
           "icon": "resources/chart.svg",
           "contextualTitle": "%view.performance.contextual%",
           "type": "webview"
+        },
+        {
+          "id": "monitor-dotnet.dumps",
+          "name": "%view.dumps%",
+          "icon": "resources/dump.svg",
+          "contextualTitle": "%view.dumps.contextual%"
         },
         {
           "id": "monitor-dotnet.issues",
@@ -134,6 +141,30 @@
         "icon": "$(database)"
       },
       {
+        "command": "monitor-dotnet.analyzeDumpFile",
+        "title": "%command.analyzeDumpFile.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(play)"
+      },
+      {
+        "command": "monitor-dotnet.compareDumps",
+        "title": "%command.compareDumps.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "monitor-dotnet.refreshDumps",
+        "title": "%command.refreshDumps.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "monitor-dotnet.revealDump",
+        "title": "%command.revealDump.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(folder-opened)"
+      },
+      {
         "command": "monitor-dotnet.startProfiling",
         "title": "%command.startProfiling.title%",
         "category": "Monitor Dotnet",
@@ -179,6 +210,12 @@
         "title": "%command.collectMemoryDump.title%",
         "category": "Monitor Dotnet",
         "icon": "$(file-binary)"
+      },
+      {
+        "command": "monitor-dotnet.analyzeMemoryDump",
+        "title": "%command.analyzeMemoryDump.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(inspect)"
       },
       {
         "command": "monitor-dotnet.downloadSymbols",
@@ -256,9 +293,31 @@
           "group": "monitoring@6"
         },
         {
+          "command": "monitor-dotnet.analyzeMemoryDump",
+          "when": "view == monitor-dotnet.performance",
+          "group": "monitoring@7"
+        },
+        {
           "command": "monitor-dotnet.openSpeedscopeProfile",
           "when": "view == monitor-dotnet.performance",
           "group": "monitoring@5"
+        },
+        {
+          "command": "monitor-dotnet.compareDumps",
+          "when": "view == monitor-dotnet.dumps",
+          "group": "navigation@1"
+        },
+        {
+          "command": "monitor-dotnet.refreshDumps",
+          "when": "view == monitor-dotnet.dumps",
+          "group": "navigation@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "monitor-dotnet.analyzeMemoryDump",
+          "when": "resourceExtname == .dmp",
+          "group": "navigation@9"
         }
       ],
       "commandPalette": [
@@ -267,6 +326,18 @@
         },
         {
           "command": "monitor-dotnet.filterEnvironment"
+        },
+        {
+          "command": "monitor-dotnet.analyzeDumpFile",
+          "when": "false"
+        },
+        {
+          "command": "monitor-dotnet.refreshDumps",
+          "when": "false"
+        },
+        {
+          "command": "monitor-dotnet.revealDump",
+          "when": "false"
         }
       ],
       "view/item/context": [
@@ -279,6 +350,27 @@
           "command": "monitor-dotnet.selectIssueInterval",
           "when": "view == monitor-dotnet.issues && viewItem =~ /^issue\\./",
           "group": "inline"
+        },
+        {
+          "command": "monitor-dotnet.analyzeDumpFile",
+          "when": "view == monitor-dotnet.dumps && viewItem == dump",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.compareDumps",
+          "when": "view == monitor-dotnet.dumps && viewItem == dump",
+          "group": "inline@2"
+        },
+        {
+          "command": "monitor-dotnet.revealDump",
+          "when": "view == monitor-dotnet.dumps && viewItem == dump",
+          "group": "inline@3"
+        }
+      ],
+      "viewsWelcome": [
+        {
+          "view": "monitor-dotnet.dumps",
+          "contents": "%view.dumps.welcome%"
         }
       ]
     },

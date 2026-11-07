@@ -35,6 +35,8 @@
 | 🔌 | **Attach to process** | Connect to any running .NET process in two clicks |
 | 🧵 | **Call stack** | Snapshot the call stack of the running process |
 | 💾 | **Memory snapshot** | Collect a GCDump and reveal it in the file manager |
+| 🧠 | **Dump analysis** | Run `dotnet-dump` SOS commands on a `.dmp` and get a graphical report with charts |
+| 🗂️ | **Dumps view** | Every `.dmp` from the output folder in one list: open one for analysis or compare two dumps |
 | ⏺️ | **Profiling** | Record a `dotnet-trace` profile in the Speedscope format |
 | 🌍 | **Two languages** | English and Russian, following the VS Code display language |
 | 📟 | **Status bar** | CPU load and private memory always in sight |
@@ -189,6 +191,7 @@ Buttons in the Performance view title bar:
 | 🧵 **Collect Call Stack** | `dotnet-stack` | Call stack of every thread in a new editor tab |
 | 💾 **Get Memory Snapshot (GCDump)** | `dotnet-gcdump` | `.gcdump` file, revealed in the file manager |
 | 🗄️ **Take Memory Dump** | `dotnet-dump` | `.dmp` file of type Heap: stacks and managed memory for `dotnet-dump analyze` |
+| 🧠 **Analyse Memory Dump** | `dotnet-dump` | Graphical report: summary tiles, heap and async charts, and the full command output in collapsible blocks. The button takes the newest `.dmp` from the output folder; right-click any `.dmp` to analyse a specific file |
 | ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` **and** a ready `.speedscope.json` next to it |
 | 🔎 **Open Speedscope Profile** | — | Opens the newest `.speedscope.json` from the output folder (a picker appears if there are several) |
 | ⬇️ **Download Symbols for Dumps** | `dotnet-symbol` | PDB/DBG files next to the dumps, so stack traces show function names |
@@ -196,6 +199,25 @@ Buttons in the Performance view title bar:
 Results go to the `.monitor-dotnet` folder of the project, together with a `.gitignore` that keeps them
 out of the repository. Set `monitor-dotnet.profilingOutputDirectory` to put them somewhere else.
 If a tool is missing, the extension offers to install it with one command (`dotnet tool install --global …`).
+
+Dump analysis runs `dotnet-dump analyze` in non-interactive mode on the newest `.dmp` from the output folder
+(or on the file you right-clicked in the Explorer). Pick one or more presets — **Overview**,
+**Thread stacks**, **Heap by type**, **Async and thread pool**, **Exceptions**, **Locks** and **Finalization queue**.
+The result opens in a graphical panel styled like VS Code: overview metrics, automatic findings and a separate
+interactive panel for every command: a thread table from `clrthreads`, GC segment sizes from `eeheap -gc`, a
+filterable heap table, sync blocks, expandable thread stacks with application frames highlighted, thread pool
+meters, exception cards with their stacks and the finalization queue grouped by type. Commands shared by
+several presets are shown once. Any panel can be collapsed with a click, and long lists have search and
+paging. The **Details** section keeps only the raw SOS output, and
+**Open text report** shows the complete report in an editor tab.
+
+A dump is a single moment in time, not a time range: the panel shows the process state at the moment the
+dump was taken. The header shows the dump file time and size separately from the report creation time.
+The live CPU and memory charts in the Performance panel are the time series; the dump page is one snapshot.
+
+The **Dumps** view lists every `.dmp` from the output folder. Click a file to analyse it, or use
+**Compare Dumps…** to pick two dumps: the report shows what changed in the heap, threads, async state
+machines and exception objects, with the types that grew or shrank the most.
 
 When you open a profile for the first time, the extension offers to install
 [Speedscope in VS Code](https://marketplace.visualstudio.com/items?itemName=sransara.speedscope-in-vscode) and to add

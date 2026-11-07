@@ -1,0 +1,895 @@
+/*
+ * Стили графической панели разбора дампа.
+ * Цвета берутся из переменных темы VS Code, поэтому панель подстраивается
+ * под светлую, тёмную и контрастную темы.
+ */
+
+:root {
+  --dump-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.22));
+  --dump-muted: var(--vscode-descriptionForeground, #999);
+  --dump-surface: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.06));
+  --dump-hover: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+  --dump-accent: var(--vscode-charts-blue, #4b9cff);
+  --dump-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --dump-up: var(--vscode-charts-red, #f14c4c);
+  --dump-down: var(--vscode-charts-green, #89d185);
+  --seg-0: var(--vscode-charts-blue, #4b9cff);
+  --seg-1: var(--vscode-charts-purple, #b180d7);
+  --seg-2: var(--vscode-charts-green, #89d185);
+  --seg-3: var(--vscode-charts-orange, #d18616);
+  --seg-4: var(--vscode-charts-yellow, #e5c07b);
+  --seg-other: var(--vscode-charts-lines, #808080);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px 28px 64px;
+  box-sizing: border-box;
+}
+
+/* Шапка отчёта: тип отчёта, имя файла, путь и действие. */
+.toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 16px;
+}
+
+.toolbar-text {
+  min-width: 0;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dump-muted);
+}
+
+.toolbar-title {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.path {
+  margin-top: 4px;
+  color: var(--dump-muted);
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.meta {
+  margin-top: 2px;
+  color: var(--dump-muted);
+  font-size: 12px;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 2px;
+}
+
+.meta.subtle {
+  opacity: 0.75;
+}
+
+button {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 2px;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+button.secondary {
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.22));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground, #ccc));
+}
+
+button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.32));
+}
+
+/* Секции отчёта: тонкая рамка и заголовок в стиле панелей VS Code. */
+.panel {
+  margin-top: 16px;
+  border: 1px solid var(--dump-border);
+  border-radius: 6px;
+  background: var(--dump-surface);
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--dump-border);
+  cursor: pointer;
+}
+
+.panel.collapsed .panel-body {
+  display: none;
+}
+
+.panel.collapsed .panel-head {
+  border-bottom: none;
+}
+
+.panel-toggle {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dump-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.panel-toggle:hover {
+  background: var(--dump-hover);
+  color: var(--vscode-foreground);
+}
+
+.panel-titles {
+  min-width: 0;
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+}
+
+.panel-sub {
+  margin: 4px 0 0;
+  color: var(--dump-muted);
+  font-size: 12px;
+}
+
+.panel-body {
+  padding: 16px;
+}
+
+.panel-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+input.filter {
+  width: 200px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  background: var(--vscode-input-background, rgba(128, 128, 128, 0.12));
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font: inherit;
+  font-size: 12px;
+}
+
+input.filter:focus {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
+}
+
+/* Переключатель показателя: выбранный вариант подсвечен. */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.segmented button {
+  padding: 3px 10px;
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.22));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground, #ccc));
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+/* Метрики: компактные карточки в сетке, значение табличными цифрами. */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.metric {
+  padding: 10px 12px;
+  border: 1px solid var(--dump-border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+
+.metric-label {
+  color: var(--dump-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-hint {
+  margin-top: 2px;
+  color: var(--dump-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value.delta-up,
+.delta-value.delta-up {
+  color: var(--dump-up);
+}
+
+.metric-value.delta-down,
+.delta-value.delta-down {
+  color: var(--dump-down);
+}
+
+/* Наблюдения: цветная полоса слева и точка по важности. */
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.finding {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dump-border);
+  border-left: 3px solid var(--dump-accent);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+
+.finding.warning {
+  border-left-color: var(--dump-warning);
+}
+
+.finding-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--dump-accent);
+}
+
+.finding.warning .finding-dot {
+  background: var(--dump-warning);
+}
+
+.finding-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.finding-detail {
+  margin-top: 2px;
+  color: var(--dump-muted);
+  font-size: 12px;
+}
+
+.subhead {
+  margin: 16px 0 8px;
+  color: var(--dump-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Состав кучи: одна полоса с крупнейшими типами и легенда. */
+.stack-wrap {
+  margin-bottom: 16px;
+}
+
+.stack {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--dump-border);
+}
+
+.stack-seg {
+  min-width: 2px;
+}
+
+.seg-0 {
+  background: var(--seg-0);
+}
+
+.seg-1 {
+  background: var(--seg-1);
+}
+
+.seg-2 {
+  background: var(--seg-2);
+}
+
+.seg-3 {
+  background: var(--seg-3);
+}
+
+.seg-4 {
+  background: var(--seg-4);
+}
+
+.seg-other {
+  background: var(--seg-other);
+}
+
+.stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dump-muted);
+  font-size: 11px;
+}
+
+.legend-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legend-label {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.legend-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Таблица типов: компактные строки и тонкие разделители. */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+table.grid th {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dump-border);
+  color: var(--dump-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+table.grid td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dump-border);
+  font-size: 12px;
+  vertical-align: middle;
+}
+
+table.grid tbody tr:last-child td {
+  border-bottom: none;
+}
+
+table.grid tbody tr:hover {
+  background: var(--dump-hover);
+}
+
+th.num,
+td.num {
+  width: 12%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.type-cell {
+  overflow: hidden;
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Таблицы блоков: колонки по содержимому, иначе заголовки налезают друг на друга. */
+table.grid.detail-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+table.grid.detail-table th {
+  white-space: nowrap;
+}
+
+table.grid.detail-table th.num,
+table.grid.detail-table td.num {
+  width: auto;
+}
+
+table.grid.detail-table td.type-cell {
+  max-width: 420px;
+}
+
+.type-cell bdi {
+  direction: ltr;
+}
+
+.share-head {
+  width: 26%;
+  text-align: left;
+}
+
+/* Ячейка доли: полоса и процент. */
+td.share-cell {
+  display: grid;
+  grid-template-columns: minmax(40px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.meter {
+  height: 6px;
+  min-width: 40px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.15));
+}
+
+.meter-fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--dump-accent);
+}
+
+.meter-fill.delta-up {
+  background: var(--dump-up);
+}
+
+.meter-fill.delta-down {
+  background: var(--dump-down);
+}
+
+/* Сравнение: тип шире, числовые колонки делят остаток. */
+table.grid.comparison th:first-child {
+  width: 34%;
+}
+
+table.grid.comparison th.num {
+  width: auto;
+}
+
+td.delta-cell {
+  display: grid;
+  grid-template-columns: minmax(40px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.delta-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.meter.wide-meter {
+  height: 8px;
+  margin-top: 12px;
+}
+
+.share-value {
+  min-width: 44px;
+  color: var(--dump-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.empty,
+.empty-cell,
+.note {
+  color: var(--dump-muted);
+  font-size: 12px;
+}
+
+.empty {
+  margin: 6px 0;
+}
+
+td.empty-cell {
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.note {
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+
+/* Детали: полный вывод команд по умолчанию свёрнут. */
+.detail {
+  border-bottom: 1px solid var(--dump-border);
+}
+
+.detail:last-child {
+  border-bottom: none;
+}
+
+.detail summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.summary-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.summary-command {
+  color: var(--dump-muted);
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 11px;
+}
+
+.detail pre {
+  max-height: 420px;
+  margin: 0 0 12px;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  white-space: pre;
+}
+
+.truncated {
+  margin: 0 0 10px;
+  color: var(--dump-warning);
+  font-size: 11px;
+}
+
+/* Интерактивные блоки «Деталей»: таблицы, стеки и карточки исключений. */
+.detail-body {
+  padding-bottom: 12px;
+}
+
+.detail-block {
+  margin-bottom: 14px;
+  overflow-x: auto;
+}
+
+.detail-block:last-child {
+  margin-bottom: 0;
+}
+
+.detail-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+/* Пагинатор: стрелки и подпись, прижатые к правому краю. */
+.pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.pager[hidden] {
+  display: none;
+}
+
+.pager-button {
+  padding: 2px 8px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pager-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pager-label {
+  color: var(--dump-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dump-muted);
+  font-size: 12px;
+  user-select: none;
+  cursor: pointer;
+}
+
+.toggle input {
+  margin: 0;
+}
+
+/* Стеки потоков: одна раскрывающаяся карточка на поток. */
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thread {
+  border: 1px solid var(--dump-border);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+
+.thread > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.thread-titles {
+  min-width: 0;
+}
+
+.thread-os {
+  color: var(--dump-muted);
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-top {
+  margin-top: 2px;
+  overflow: hidden;
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frame-count {
+  flex: 0 0 auto;
+  color: var(--dump-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.frames {
+  margin: 0;
+  padding: 6px 10px 10px 34px;
+}
+
+.frame {
+  padding: 2px 0;
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.frame-sys {
+  color: var(--dump-muted);
+}
+
+.frame-app {
+  color: var(--vscode-foreground);
+}
+
+.frame-app .frame-method {
+  font-weight: 500;
+}
+
+.frame-method {
+  word-break: break-word;
+}
+
+.frame-namespace {
+  opacity: 0.6;
+}
+
+.frame-loc {
+  margin-left: 8px;
+  color: var(--dump-muted);
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.thread-list.hide-runtime .frame-sys {
+  display: none;
+}
+
+/* Исключения: карточка с типом, сообщением, HRESULT и стеком. */
+.exception-card {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--dump-border);
+  border-left: 3px solid var(--dump-warning);
+  border-radius: 4px;
+  background: var(--vscode-editor-background);
+}
+
+.exception-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.exception-card:last-child {
+  margin-bottom: 0;
+}
+
+.exception-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.exception-type {
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.exception-address {
+  flex: 0 0 auto;
+  color: var(--dump-muted);
+  font-size: 11px;
+}
+
+.exception-message {
+  margin-top: 8px;
+}
+
+.exception-message p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.exception-field {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.exception-label {
+  min-width: 88px;
+  color: var(--dump-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.exception-value {
+  font-family: var(--vscode-editor-font-family, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.exception-stack {
+  margin-top: 8px;
+}
+
+.exception-stack > summary {
+  color: var(--dump-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Исходный вывод команды: свёрнут внутри интерактивного блока. */
+.raw-output {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--dump-border);
+}
+
+.raw-output > summary {
+  color: var(--dump-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.raw-output pre {
+  margin-top: 8px;
+}
+
+/* Полосы прокрутки в цветах темы. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 5px;
+  background: var(--vscode-scrollbarSlider-background, rgba(128, 128, 128, 0.4));
+}
+

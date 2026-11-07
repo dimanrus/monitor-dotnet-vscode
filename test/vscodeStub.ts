@@ -268,6 +268,15 @@ export function createVscodeStub(
         registry.treeProviders.set(id, provider);
         return disposable();
       },
+      createTreeView: (id: string, options: { treeDataProvider: unknown }) => {
+        registry.treeViews.push(id);
+        registry.treeProviders.set(id, options.treeDataProvider);
+        return {
+          visible: true,
+          onDidChangeVisibility: () => disposable(),
+          dispose: () => undefined,
+        };
+      },
       registerWebviewViewProvider: (id: string, provider: unknown) => {
         registry.webviewViews.set(id, provider);
         return disposable();

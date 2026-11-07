@@ -81,9 +81,10 @@ test('активация регистрирует команды, панели �
 
   assert.doesNotThrow(() => activate(context));
 
-  // Панели: счётчики и окружение — деревья, графики — webview.
+  // Панели: счётчики, окружение и дампы — деревья, графики — webview.
   assert.deepEqual(registry.treeViews.sort(), [
     'monitor-dotnet.counters',
+    'monitor-dotnet.dumps',
     'monitor-dotnet.environment',
     'monitor-dotnet.issues',
   ]);
@@ -105,6 +106,10 @@ test('активация регистрирует команды, панели �
     'monitor-dotnet.stopProfiling',
     'monitor-dotnet.openSettings',
     'monitor-dotnet.filterEnvironment',
+    'monitor-dotnet.analyzeDumpFile',
+    'monitor-dotnet.compareDumps',
+    'monitor-dotnet.refreshDumps',
+    'monitor-dotnet.revealDump',
   ]) {
     assert.ok(registry.commands.includes(command), `Не зарегистрирована команда ${command}`);
   }

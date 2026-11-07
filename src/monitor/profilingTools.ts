@@ -6,12 +6,27 @@
  */
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
-import { translate } from '../core/locale.ts';
+import { formatBytes } from '../core/formatting.ts';
+import { localeTag, translate } from '../core/locale.ts';
 import { describeError } from '../core/errors.ts';
+import {
+  DEFAULT_ANALYSIS_IDS,
+  SOS_ANALYSES,
+  analysisText,
+  analyzeDumpOutput,
+  buildAnalyzeArgs,
+  buildDumpComparison,
+  buildDumpReport,
+  formatAnalysisReport,
+  formatComparisonReport,
+  type SosAnalysis,
+} from './dumpAnalysis.ts';
+import { listDumpFiles, type DumpFileInfo } from './dumpFiles.ts';
+import { DumpAnalysisPanel } from '../views/dumpAnalysisPanel.ts';
 import {
   CALL_STACK_TOOL,
   DUMP_TOOL,
@@ -27,7 +42,7 @@ import {
   SPEEDSCOPE_VIEWER_EXTENSION,
   withSpeedscopeAssociation,
 } from './editorAssociations.ts';
-import { listResultFiles, prepareOutputDirectory } from './outputDirectory.ts';
+import { defaultOutputDirectory, listResultFiles, prepareOutputDirectory } from './outputDirectory.ts';
 import { speedscopeFileFor } from './toolArguments.ts';
 import type { Logger } from '../logger.ts';
 
@@ -45,8 +60,12 @@ export class ProfilingTools {
 
   private readonly logger: Logger;
 
-  constructor(logger: Logger) {
+  /** Каталог расширения: из него панель берёт собранные скрипт и стили. */
+  private readonly extensionUri: vscode.Uri;
+
+  constructor(logger: Logger, extensionUri: vscode.Uri) {
     this.logger = logger;
+    this.extensionUri = extensionUri;
   }
 
   /** Признак активной записи профиля. */
@@ -202,6 +221,7 @@ export class ProfilingTools {
    */
   async collectMemoryDump(pid: number, dotnetPath: string, outputDirectory: string): Promise<void> {
     const target = path.join(await this.resolveOutputDirectory(outputDirectory), `dump-${pid}-${timestamp()}.dmp`);
+    let analyzeRequested = false;
 
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: taking a memory dump…') },
@@ -218,9 +238,25 @@ export class ProfilingTools {
         }
 
         this.logger.info(translate('Memory dump saved: {0}', target));
-        await this.reportSavedFile(target, 'Memory dump saved: {0}');
+        const analyze = translate('Analyse Memory Dump');
+        const reveal = translate('Reveal in Explorer');
+        const action = await vscode.window.showInformationMessage(
+          translate('Memory dump saved: {0}', path.basename(target)),
+          analyze,
+          reveal,
+        );
+        if (action === analyze) {
+          analyzeRequested = true;
+        } else if (action === reveal) {
+          await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+        }
       },
     );
+
+    // Разбор запускается после уведомления о снятии дампа: у него свой прогресс.
+    if (analyzeRequested) {
+      await this.analyzeMemoryDump(dotnetPath, outputDirectory, target);
+    }
   }
 
   /**
@@ -229,7 +265,9 @@ export class ProfilingTools {
    */
   async downloadSymbols(dotnetPath: string, outputDirectory: string, dumpFile?: string): Promise<void> {
     const directory = await this.resolveOutputDirectory(outputDirectory);
-    if (this.dumpFilesIn(directory).length === 0 && dumpFile === undefined) {
+    // Каталог уже отсортирован по времени изменения: свежие дампы первыми.
+    const dumps = await listResultFiles(directory, '.dmp');
+    if (dumps.length === 0 && dumpFile === undefined) {
       void vscode.window.showWarningMessage(translate(
         'Monitor Dotnet: no memory dump found in {0}. Take a memory dump first.',
         directory,
@@ -237,7 +275,7 @@ export class ProfilingTools {
       return;
     }
 
-    const files = dumpFile !== undefined ? [dumpFile] : this.dumpFilesIn(directory);
+    const files = dumpFile !== undefined ? [dumpFile] : dumps;
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: downloading symbols…') },
       async () => {
@@ -257,24 +295,228 @@ export class ProfilingTools {
     );
   }
 
-  /** Дампы памяти в каталоге результатов: по ним ищутся файлы для скачивания символов. */
-  private dumpFilesIn(directory: string): string[] {
-    try {
-      return readdirSync(directory)
-        .filter(name => name.endsWith('.dmp'))
-        .map(name => path.join(directory, name));
-    } catch {
-      return [];
+  /**
+   * Разбирает дамп памяти командами `dotnet-dump analyze`.
+   *
+   * Кнопка в заголовке панели берёт самый свежий `.dmp` из каталога результатов,
+   * чтобы разбор запускался в один клик. Конкретный файл можно разобрать из
+   * контекстного меню проводника — тогда его путь приходит в `dumpFile`.
+   * Каждый выбранный набор команд запускается отдельно: `dotnet-dump` не
+   * печатает приглашения `> команда`, поэтому иначе нельзя понять, какой
+   * вывод к какому набору относится. Результат открывается в графической
+   * панели, а полный текстовый отчёт доступен из неё одной кнопкой.
+   */
+  async analyzeMemoryDump(dotnetPath: string, outputDirectory: string, dumpFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const target = dumpFile ?? (await listResultFiles(directory, '.dmp'))[0];
+    if (target === undefined) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no memory dump found in {0}. Take a memory dump first.',
+        directory,
+      ));
+      return;
     }
+
+    const analyses = await this.pickAnalyses();
+    if (analyses === undefined) {
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: translate('Monitor Dotnet: analysing {0}…', path.basename(target)),
+      },
+      async () => {
+        const commands = analyses.flatMap(analysis => analysis.commands);
+        this.logger.info(translate('Dump analysis of {0}: {1}', target, commands.join('; ')));
+        const outputs: string[] = [];
+        for (const analysis of analyses) {
+          const output = await this.runTool(DUMP_TOOL, dotnetPath, buildAnalyzeArgs(target, analysis.commands));
+          if (output === undefined) {
+            return;
+          }
+          outputs.push(output);
+        }
+
+        const generatedAt = new Date();
+        const options = await this.dumpOptions(target);
+        const report = buildDumpReport(target, analyses, outputs, generatedAt, options);
+        const textReport = formatAnalysisReport(target, analyses, outputs, generatedAt, options);
+        DumpAnalysisPanel.show(this.extensionUri, report, textReport, this.logger);
+      },
+    );
   }
 
-  /** Сообщает о сохранённом файле и предлагает показать его в проводнике. */
-  private async reportSavedFile(target: string, template: string): Promise<void> {
-    const reveal = translate('Reveal in Explorer');
-    const action = await vscode.window.showInformationMessage(translate(template, path.basename(target)), reveal);
-    if (action === reveal) {
-      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+  /**
+   * Сравнивает два дампа одним набором команд и показывает различия.
+   *
+   * Дампы разбираются последовательно: два `dotnet-dump analyze` одновременно
+   * нагружают диск и память сильнее, чем нужно.
+   */
+  async compareMemoryDumps(dotnetPath: string, outputDirectory: string, firstFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const dumps = await listDumpFiles(directory);
+    if (dumps.length < 2) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: at least two dumps are needed for comparison.',
+      ));
+      return;
     }
+
+    const before = firstFile !== undefined && dumps.some(dump => dump.file === firstFile)
+      ? firstFile
+      : await this.pickDump(dumps, translate('Select the first dump'));
+    if (before === undefined) {
+      return;
+    }
+
+    const after = await this.pickDump(dumps, translate('Select the second dump'), before);
+    if (after === undefined) {
+      return;
+    }
+
+    const analyses = await this.pickAnalyses();
+    if (analyses === undefined) {
+      return;
+    }
+
+    const commands = analyses.flatMap(analysis => analysis.commands);
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: translate('Monitor Dotnet: comparing dumps…'),
+      },
+      async progress => {
+        const collect = async (file: string): Promise<string[] | undefined> => {
+          const outputs: string[] = [];
+          for (const analysis of analyses) {
+            const output = await this.runTool(DUMP_TOOL, dotnetPath, buildAnalyzeArgs(file, analysis.commands));
+            if (output === undefined) {
+              return undefined;
+            }
+            outputs.push(output);
+          }
+          return outputs;
+        };
+
+        progress.report({ message: translate('Analysing {0}…', path.basename(before)) });
+        const beforeOutput = await collect(before);
+        if (beforeOutput === undefined) {
+          return;
+        }
+
+        progress.report({ message: translate('Analysing {0}…', path.basename(after)) });
+        const afterOutput = await collect(after);
+        if (afterOutput === undefined) {
+          return;
+        }
+
+        this.logger.info(translate('Dump comparison of {0} and {1}: {2}', before, after, commands.join('; ')));
+        const generatedAt = new Date();
+        const beforeAnalysis = analyzeDumpOutput(
+          before,
+          analyses,
+          beforeOutput,
+          generatedAt,
+          await this.dumpOptions(before),
+        );
+        const afterAnalysis = analyzeDumpOutput(
+          after,
+          analyses,
+          afterOutput,
+          generatedAt,
+          await this.dumpOptions(after),
+        );
+        const comparison = buildDumpComparison(beforeAnalysis, afterAnalysis);
+        const textReport = formatComparisonReport(comparison, generatedAt);
+        DumpAnalysisPanel.showComparison(this.extensionUri, comparison, textReport, this.logger);
+      },
+    );
+  }
+
+  /** Дампы в каталоге результатов: для панели «Дампы». */
+  async listDumps(outputDirectory: string): Promise<DumpFileInfo[]> {
+    // Каталог не создаём: панель открывается при активации и не должна оставлять следов.
+    const directory = outputDirectory.length === 0
+      ? defaultOutputDirectory(currentWorkspaceFolder())
+      : path.resolve(outputDirectory);
+    return listDumpFiles(directory);
+  }
+
+  /** Время и размер файла дампа для заголовка отчёта. */
+  private async dumpOptions(file: string): Promise<{ takenAt?: Date; dumpBytes?: number }> {
+    // Время снятия дампа берём у файла: внутри дампа удобной метки нет.
+    const info = await stat(file).catch(() => undefined);
+    return { takenAt: info?.mtime, dumpBytes: info?.size };
+  }
+
+  /** Выбор дампа для сравнения: свежие первыми. */
+  private async pickDump(
+    dumps: readonly DumpFileInfo[],
+    title: string,
+    exclude?: string,
+  ): Promise<string | undefined> {
+    const items = dumps
+      .filter(dump => dump.file !== exclude)
+      .map(dump => ({
+        label: path.basename(dump.file),
+        description: `${formatBytes(dump.bytes)} · ${new Date(dump.modifiedMs).toLocaleString(
+          localeTag(),
+          { dateStyle: 'short', timeStyle: 'short' },
+        )}`,
+        file: dump.file,
+      }));
+
+    if (items.length === 0) {
+      return undefined;
+    }
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title,
+      placeHolder: translate('Newest dumps first'),
+    });
+    return picked?.file;
+  }
+
+  /**
+   * Выбор наборов анализа. Можно взять несколько: например, стек потоков
+   * и статистику кучи из одного и того же дампа.
+   */
+  private async pickAnalyses(): Promise<SosAnalysis[] | undefined> {
+    interface AnalysisItem extends vscode.QuickPickItem {
+      analysis?: SosAnalysis;
+    }
+
+    const items: AnalysisItem[] = SOS_ANALYSES.map(analysis => {
+      const text = analysisText(analysis.id);
+      return {
+        label: text?.title ?? analysis.id,
+        description: text?.description ?? '',
+        picked: DEFAULT_ANALYSIS_IDS.includes(analysis.id),
+        analysis,
+      };
+    });
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title: translate('What to include in the report'),
+      placeHolder: translate('Pick one or more items'),
+      canPickMany: true,
+    });
+    if (picked === undefined) {
+      return undefined;
+    }
+
+    const analyses = picked
+      .map(item => item.analysis)
+      .filter((analysis): analysis is SosAnalysis => analysis !== undefined);
+
+    if (analyses.length === 0) {
+      void vscode.window.showWarningMessage(translate('Monitor Dotnet: nothing was selected for analysis.'));
+      return undefined;
+    }
+
+    return analyses;
   }
 
   /**
@@ -376,7 +618,11 @@ export class ProfilingTools {
     try {
       // Глобальные инструменты — отдельные исполняемые файлы, а не подкоманды `dotnet`.
       const { stdout, stderr } = await execFileAsync(executable, args, { maxBuffer: 32 * 1024 * 1024 });
-      return [stdout, stderr].filter(part => part.trim().length > 0).join('\n');
+      const output = [stdout, stderr].filter(part => part.trim().length > 0).join('\n');
+      if (output.trim().length === 0) {
+        this.logger.warn(translate('Tool {0} returned no output', tool.command));
+      }
+      return output;
     } catch (error) {
       const text = describeError(error);
       this.logger.error(translate('Tool {0} failed', tool.command), error);

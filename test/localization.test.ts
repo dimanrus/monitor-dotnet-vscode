@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
 import { WEBVIEW_SOURCE_STRINGS } from '../src/core/webviewStrings.ts';
+import { DUMP_WEBVIEW_SOURCE_STRINGS } from '../src/core/dumpWebviewStrings.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 
@@ -118,7 +119,10 @@ test('в словарях нет лишних записей', async () => {
 test('все строки интерфейса переведены на русский', async () => {
   const bundle = await readJson('l10n/bundle.l10n.ru.json');
   const fromCode = await collectCodeStrings();
-  const fromWebview = Object.values(WEBVIEW_SOURCE_STRINGS);
+  const fromWebview = [
+    ...Object.values(WEBVIEW_SOURCE_STRINGS),
+    ...Object.values(DUMP_WEBVIEW_SOURCE_STRINGS),
+  ];
 
   const missing: string[] = [];
   for (const source of [...fromCode, ...fromWebview]) {
@@ -133,7 +137,10 @@ test('все строки интерфейса переведены на рус�
 test('в словаре строк нет лишних записей', async () => {
   const bundle = await readJson('l10n/bundle.l10n.ru.json');
   const fromCode = await collectCodeStrings();
-  const fromWebview = new Set<string>(Object.values(WEBVIEW_SOURCE_STRINGS));
+  const fromWebview = new Set<string>([
+    ...Object.values(WEBVIEW_SOURCE_STRINGS),
+    ...Object.values(DUMP_WEBVIEW_SOURCE_STRINGS),
+  ]);
 
   for (const key of Object.keys(bundle)) {
     const used = fromCode.has(key) || fromWebview.has(key);

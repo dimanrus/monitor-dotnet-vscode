@@ -24,6 +24,7 @@ import { collectIssues } from './core/issueSource.ts';
 import { IssueStore } from './core/issueStore.ts';
 import { IssuesTreeProvider } from './views/issuesTreeProvider.ts';
 import { PerformanceChartPanel } from './views/performanceChartPanel.ts';
+import { DumpsTreeProvider } from './views/dumpsTreeProvider.ts';
 import { MonitorStatusBar } from './views/statusBar.ts';
 
 /**
@@ -55,7 +56,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   let settings = getSettings();
   const controller = new MonitorController(state, logger, context.extensionPath, () => settings);
-  const profiling = new ProfilingTools(logger);
+  const profiling = new ProfilingTools(logger, context.extensionUri);
+
+  // Панель «Дампы»: список файлов из каталога результатов.
+  const dumpsProvider = new DumpsTreeProvider(
+    () => profiling.listDumps(settings.profilingOutputDirectory),
+  );
+  const dumpsView = vscode.window.createTreeView('monitor-dotnet.dumps', {
+    treeDataProvider: dumpsProvider,
+  });
 
   // Проблемы копятся по процессам: данные монитора очищаются при смене процесса,
   // а найденные интервалы должны оставаться видимыми — в дереве, сгруппированные по процессу.
@@ -127,6 +136,14 @@ export function activate(context: vscode.ExtensionContext): void {
     issuesProvider,
     countersProvider,
     environmentProvider,
+    dumpsProvider,
+    dumpsView,
+    dumpsView.onDidChangeVisibility(() => {
+      // Панель могла быть свёрнута, пока снимали новые дампы.
+      if (dumpsView.visible) {
+        dumpsProvider.refresh();
+      }
+    }),
     statusBar,
     controller,
     vscode.window.registerWebviewViewProvider(PerformanceChartPanel.viewType, performancePanel),
@@ -148,6 +165,8 @@ export function activate(context: vscode.ExtensionContext): void {
       applyWindow(settings);
       // Сообщаем панели новые параметры (окно графиков, период обновления).
       performancePanel.sync();
+      // Каталог результатов мог измениться — список дампов перечитываем.
+      dumpsProvider.refresh();
       // Настройка поиска проблем могла измениться: дерево перечитывает список.
       issuesProvider.refresh();
 
@@ -262,14 +281,42 @@ export function activate(context: vscode.ExtensionContext): void {
       }
 
       await profiling.collectMemoryDump(pid, settings.dotnetPath, settings.profilingOutputDirectory);
+      dumpsProvider.refresh();
     }),
     // Открыть последний профиль Speedscope: файл лежит в каталоге результатов.
     vscode.commands.registerCommand('monitor-dotnet.openSpeedscopeProfile', async () => {
       await profiling.openSpeedscopeProfile(settings.profilingOutputDirectory);
     }),
+    // Разбор дампа SOS-командами: работает и для сохранённого дампа, поэтому
+    // не требует запущенного процесса. Из проводника приходит путь к файлу.
+    vscode.commands.registerCommand('monitor-dotnet.analyzeMemoryDump', async (uri?: vscode.Uri) => {
+      const dumpFile = uri?.scheme === 'file' ? uri.fsPath : undefined;
+      await profiling.analyzeMemoryDump(settings.dotnetPath, settings.profilingOutputDirectory, dumpFile);
+    }),
     // Символы к дампу: без них в дампе не видно имён функций.
     vscode.commands.registerCommand('monitor-dotnet.downloadSymbols', async () => {
       await profiling.downloadSymbols(settings.dotnetPath, settings.profilingOutputDirectory);
+    }),
+    // Панель «Дампы»: клик по файлу или пункт контекстного меню.
+    vscode.commands.registerCommand('monitor-dotnet.analyzeDumpFile', async (target?: unknown) => {
+      const file = dumpFileFromArgument(target);
+      if (file !== undefined) {
+        await profiling.analyzeMemoryDump(settings.dotnetPath, settings.profilingOutputDirectory, file);
+      }
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.compareDumps', async (target?: unknown) => {
+      await profiling.compareMemoryDumps(
+        settings.dotnetPath,
+        settings.profilingOutputDirectory,
+        dumpFileFromArgument(target),
+      );
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.refreshDumps', () => dumpsProvider.refresh()),
+    vscode.commands.registerCommand('monitor-dotnet.revealDump', async (target?: unknown) => {
+      const file = dumpFileFromArgument(target);
+      if (file !== undefined) {
+        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(file));
+      }
     }),
   );
 
@@ -754,6 +801,26 @@ function requirePid(controller: MonitorController): number | undefined {
   }
 
   return pid;
+}
+
+/** Путь к дампу из аргумента команды: элемент дерева, Uri или строка. */
+function dumpFileFromArgument(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const record = value as { file?: unknown; scheme?: unknown; fsPath?: unknown };
+    if (typeof record.file === 'string') {
+      return record.file;
+    }
+
+    if (record.scheme === 'file' && typeof record.fsPath === 'string') {
+      return record.fsPath;
+    }
+  }
+
+  return undefined;
 }
 
 /** Интервал проблемы, запрошенный из дерева проблем или из списка панели. */
