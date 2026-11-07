@@ -29,7 +29,7 @@ import { archiveReplaced, liveVisibleRange, type TimeRange } from '../core/chart
 import { configureLocale, formatTemplate, word } from '../core/locale.ts';
 import { DEFAULT_WEBVIEW_STRINGS, type WebviewStrings } from '../core/webviewStrings.ts';
 import type { TargetEntry, TargetGroups } from '../core/targetChoices.ts';
-import { resolveCanvasColor } from './colors.ts';
+import { resolveCanvasColor, SELECTION_ALPHA, withAlpha } from './colors.ts';
 import { drawChart, type ChartPalette, type ChartSpec, type ChartView } from './render.ts';
 import './charts.css';
 
@@ -1125,7 +1125,8 @@ function readPalette(): ChartPalette {
     text: resolve('--chart-text', '#999999'),
     grid: resolve('--chart-grid', 'rgba(128,128,128,0.25)'),
     crosshair: resolve('--chart-crosshair', '#cccccc'),
-    selectionFill: resolve('--chart-selection', 'rgba(58,110,165,0.35)'),
+    // Цвет выделения в теме непрозрачный: без своей прозрачности заливка закрывает графики.
+    selectionFill: withAlpha(resolve('--chart-selection', '#3a6ea5'), SELECTION_ALPHA, 'rgba(58, 110, 165, 0.28)'),
     selectionBorder: resolve('--chart-selection-border', '#007fd4'),
     font: `${styles.fontSize || '12px'} ${styles.fontFamily || 'sans-serif'}`,
     gen0: resolve('--chart-gen0', '#e5c07b'),

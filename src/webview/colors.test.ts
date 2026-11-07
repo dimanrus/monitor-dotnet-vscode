@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveCanvasColor } from './colors.ts';
+import { resolveCanvasColor, withAlpha } from './colors.ts';
 
 /** Читатель переменных, как это делает браузер для темы VS Code. */
 function reader(values: Record<string, string>): (name: string) => string {
@@ -49,4 +49,29 @@ test('циклические ссылки не приводят к зависа�
 
 test('пустое значение заменяется цветом по умолчанию', () => {
   assert.equal(resolveCanvasColor('', reader({}), '#000000'), '#000000');
+});
+
+test('непрозрачный цвет темы становится полупрозрачной заливкой', () => {
+  // Именно так выглядит --vscode-editor-selectionBackground в тёмной теме.
+  assert.equal(withAlpha('#264f78', 0.22, 'rgba(1, 2, 3, 0.5)'), 'rgba(38, 79, 120, 0.22)');
+  assert.equal(withAlpha('#fff', 0.22, 'rgba(1, 2, 3, 0.5)'), 'rgba(255, 255, 255, 0.22)');
+});
+
+test('заданная в теме прозрачность заменяется на нужную', () => {
+  assert.equal(withAlpha('#264f7880', 0.22, 'rgba(1, 2, 3, 0.5)'), 'rgba(38, 79, 120, 0.22)');
+  assert.equal(withAlpha('rgba(1, 2, 3, 0.5)', 0.22, 'rgba(1, 2, 3, 0.5)'), 'rgba(1, 2, 3, 0.22)');
+  assert.equal(withAlpha('rgb(1 2 3 / 50%)', 0.22, 'rgba(1, 2, 3, 0.5)'), 'rgba(1, 2, 3, 0.22)');
+});
+
+test('незнакомый формат цвета заменяется запасной заливкой', () => {
+  assert.equal(withAlpha('transparent', 0.22, 'rgba(1, 2, 3, 0.5)'), 'rgba(1, 2, 3, 0.5)');
+  assert.equal(
+    withAlpha('color-mix(in srgb, #264f78 50%, transparent)', 0.22, 'rgba(1, 2, 3, 0.5)'),
+    'rgba(1, 2, 3, 0.5)',
+  );
+});
+
+test('прозрачность ограничена диапазоном 0–1', () => {
+  assert.equal(withAlpha('#264f78', 5, 'rgba(1, 2, 3, 0.5)'), 'rgba(38, 79, 120, 1)');
+  assert.equal(withAlpha('#264f78', -1, 'rgba(1, 2, 3, 0.5)'), 'rgba(38, 79, 120, 0)');
 });

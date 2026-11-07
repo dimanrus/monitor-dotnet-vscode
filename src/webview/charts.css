@@ -17,7 +17,8 @@
   --chart-grid: var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
   --chart-text: var(--vscode-descriptionForeground, #999);
   --chart-crosshair: var(--vscode-editor-foreground, #ccc);
-  --chart-selection: var(--vscode-editor-selectionBackground, rgba(58, 110, 165, 0.35));
+  /* Цвет выделения задаётся непрозрачным: прозрачность добавляет панель при отрисовке. */
+  --chart-selection: var(--vscode-editor-selectionBackground, #3a6ea5);
   --chart-selection-border: var(--vscode-focusBorder, #007fd4);
   /* Цвета найденных проблем: полосы на графиках и значки в списке. */
   --chart-issue-info: var(--vscode-charts-blue, #4b9cff);
