@@ -218,6 +218,18 @@
         "icon": "$(inspect)"
       },
       {
+        "command": "monitor-dotnet.analyzeMemorySnapshot",
+        "title": "%command.analyzeMemorySnapshot.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(inspect)"
+      },
+      {
+        "command": "monitor-dotnet.compareSnapshots",
+        "title": "%command.compareSnapshots.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(diff)"
+      },
+      {
         "command": "monitor-dotnet.downloadSymbols",
         "title": "%command.downloadSymbols.title%",
         "category": "Monitor Dotnet",
@@ -228,6 +240,36 @@
         "title": "%command.openSpeedscopeProfile.title%",
         "category": "Monitor Dotnet",
         "icon": "$(pulse)"
+      },
+      {
+        "command": "monitor-dotnet.convertTrace",
+        "title": "%command.convertTrace.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "monitor-dotnet.traceTopMethods",
+        "title": "%command.traceTopMethods.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(list-ordered)"
+      },
+      {
+        "command": "monitor-dotnet.addMonitorFilter",
+        "title": "%command.addMonitorFilter.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(add)"
+      },
+      {
+        "command": "monitor-dotnet.exportCounters",
+        "title": "%command.exportCounters.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(export)"
+      },
+      {
+        "command": "monitor-dotnet.symbolicateStack",
+        "title": "%command.symbolicateStack.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(symbol-method)"
       }
     ],
     "menus": {
@@ -283,6 +325,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "monitor-dotnet.exportCounters",
+          "when": "view == monitor-dotnet.counters && monitor-dotnet.isMonitoring",
+          "group": "navigation@1"
+        },
+        {
           "command": "monitor-dotnet.collectMemoryDump",
           "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
           "group": "monitoring@2"
@@ -293,14 +340,19 @@
           "group": "monitoring@6"
         },
         {
-          "command": "monitor-dotnet.analyzeMemoryDump",
-          "when": "view == monitor-dotnet.performance",
-          "group": "monitoring@7"
-        },
-        {
           "command": "monitor-dotnet.openSpeedscopeProfile",
           "when": "view == monitor-dotnet.performance",
           "group": "monitoring@5"
+        },
+        {
+          "command": "monitor-dotnet.convertTrace",
+          "when": "view == monitor-dotnet.performance",
+          "group": "monitoring@8"
+        },
+        {
+          "command": "monitor-dotnet.traceTopMethods",
+          "when": "view == monitor-dotnet.performance",
+          "group": "monitoring@9"
         },
         {
           "command": "monitor-dotnet.compareDumps",
@@ -308,15 +360,25 @@
           "group": "navigation@1"
         },
         {
-          "command": "monitor-dotnet.refreshDumps",
+          "command": "monitor-dotnet.compareSnapshots",
           "when": "view == monitor-dotnet.dumps",
           "group": "navigation@2"
+        },
+        {
+          "command": "monitor-dotnet.refreshDumps",
+          "when": "view == monitor-dotnet.dumps",
+          "group": "navigation@3"
         }
       ],
       "explorer/context": [
         {
           "command": "monitor-dotnet.analyzeMemoryDump",
           "when": "resourceExtname == .dmp",
+          "group": "navigation@9"
+        },
+        {
+          "command": "monitor-dotnet.analyzeMemorySnapshot",
+          "when": "resourceExtname == .gcdump",
           "group": "navigation@9"
         }
       ],
@@ -329,6 +391,10 @@
         },
         {
           "command": "monitor-dotnet.analyzeDumpFile",
+          "when": "false"
+        },
+        {
+          "command": "monitor-dotnet.analyzeMemoryDump",
           "when": "false"
         },
         {
@@ -345,6 +411,16 @@
           "command": "monitor-dotnet.copyEnvironmentValue",
           "when": "view == monitor-dotnet.environment && viewItem == entry",
           "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.addMonitorFilter",
+          "when": "view == monitor-dotnet.counters && viewItem =~ /^(counter|metric)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.addMonitorFilter",
+          "when": "view == monitor-dotnet.counters && viewItem =~ /^(counter|metric)/",
+          "group": "1_modification@1"
         },
         {
           "command": "monitor-dotnet.selectIssueInterval",
@@ -364,6 +440,21 @@
         {
           "command": "monitor-dotnet.revealDump",
           "when": "view == monitor-dotnet.dumps && viewItem == dump",
+          "group": "inline@3"
+        },
+        {
+          "command": "monitor-dotnet.analyzeMemorySnapshot",
+          "when": "view == monitor-dotnet.dumps && viewItem == snapshot",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.compareSnapshots",
+          "when": "view == monitor-dotnet.dumps && viewItem == snapshot",
+          "group": "inline@2"
+        },
+        {
+          "command": "monitor-dotnet.revealDump",
+          "when": "view == monitor-dotnet.dumps && viewItem == snapshot",
           "group": "inline@3"
         }
       ],
@@ -459,6 +550,56 @@
           "type": "string",
           "default": "",
           "description": "%config.profilingOutputDirectory.description%"
+        },
+        "monitor-dotnet.traceProfile": {
+          "type": "string",
+          "enum": [
+            "default",
+            "dotnet-common",
+            "dotnet-sampled-thread-time",
+            "gc-verbose",
+            "gc-collect",
+            "database"
+          ],
+          "enumDescriptions": [
+            "%config.traceProfile.enum.default%",
+            "%config.traceProfile.enum.dotnetCommon%",
+            "%config.traceProfile.enum.dotnetSampledThreadTime%",
+            "%config.traceProfile.enum.gcVerbose%",
+            "%config.traceProfile.enum.gcCollect%",
+            "%config.traceProfile.enum.database%"
+          ],
+          "default": "default",
+          "markdownDescription": "%config.traceProfile.markdownDescription%"
+        },
+        "monitor-dotnet.traceDurationSeconds": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 86400,
+          "description": "%config.traceDurationSeconds.description%"
+        },
+        "monitor-dotnet.dumpType": {
+          "type": "string",
+          "enum": [
+            "Full",
+            "Heap",
+            "Mini",
+            "Triage"
+          ],
+          "enumDescriptions": [
+            "%config.dumpType.enum.full%",
+            "%config.dumpType.enum.heap%",
+            "%config.dumpType.enum.mini%",
+            "%config.dumpType.enum.triage%"
+          ],
+          "default": "Heap",
+          "markdownDescription": "%config.dumpType.markdownDescription%"
+        },
+        "monitor-dotnet.dumpCrashReport": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.dumpCrashReport.description%"
         }
       }
     }

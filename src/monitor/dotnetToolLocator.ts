@@ -54,6 +54,12 @@ export const SYMBOL_TOOL: DotnetTool = {
   purpose: 'downloading symbols',
 };
 
+export const COUNTERS_TOOL: DotnetTool = {
+  command: 'dotnet-counters',
+  packageName: 'dotnet-counters',
+  purpose: 'exporting counters to a file',
+};
+
 /**
  * Окружение поиска. Вынесено отдельно, чтобы тесты не зависели от содержимого диска
  * и от переменных окружения машины.

@@ -48,7 +48,9 @@ export class DumpAnalysisPanel implements vscode.Disposable {
     DumpAnalysisPanel.open(
       extensionUri,
       { kind: 'report', report },
-      translate('Memory dump: {0}', path.basename(report.dumpFile)),
+      report.source === 'gcdump'
+        ? translate('Memory snapshot: {0}', path.basename(report.dumpFile))
+        : translate('Memory dump: {0}', path.basename(report.dumpFile)),
       textReport,
       logger,
     );
@@ -61,14 +63,22 @@ export class DumpAnalysisPanel implements vscode.Disposable {
     textReport: string,
     logger: Logger,
   ): void {
+    const title = comparison.before.source === 'gcdump'
+      ? translate(
+          'Memory snapshot comparison: {0} ↔ {1}',
+          path.basename(comparison.before.dumpFile),
+          path.basename(comparison.after.dumpFile),
+        )
+      : translate(
+          'Dump comparison: {0} ↔ {1}',
+          path.basename(comparison.before.dumpFile),
+          path.basename(comparison.after.dumpFile),
+        );
+
     DumpAnalysisPanel.open(
       extensionUri,
       { kind: 'comparison', comparison },
-      translate(
-        'Dump comparison: {0} ↔ {1}',
-        path.basename(comparison.before.dumpFile),
-        path.basename(comparison.after.dumpFile),
-      ),
+      title,
       textReport,
       logger,
     );

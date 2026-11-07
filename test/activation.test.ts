@@ -110,6 +110,13 @@ test('активация регистрирует команды, панели �
     'monitor-dotnet.compareDumps',
     'monitor-dotnet.refreshDumps',
     'monitor-dotnet.revealDump',
+    'monitor-dotnet.analyzeMemorySnapshot',
+    'monitor-dotnet.compareSnapshots',
+    'monitor-dotnet.convertTrace',
+    'monitor-dotnet.traceTopMethods',
+    'monitor-dotnet.addMonitorFilter',
+    'monitor-dotnet.exportCounters',
+    'monitor-dotnet.symbolicateStack',
   ]) {
     assert.ok(registry.commands.includes(command), `Не зарегистрирована команда ${command}`);
   }

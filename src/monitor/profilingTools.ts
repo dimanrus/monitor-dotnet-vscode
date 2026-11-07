@@ -6,7 +6,7 @@
  */
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { stat } from 'node:fs/promises';
+import { stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
@@ -21,14 +21,17 @@ import {
   buildAnalyzeArgs,
   buildDumpComparison,
   buildDumpReport,
+  commandsFromInput,
   formatAnalysisReport,
   formatComparisonReport,
   type SosAnalysis,
 } from './dumpAnalysis.ts';
-import { listDumpFiles, type DumpFileInfo } from './dumpFiles.ts';
+import { listDumpFiles, listMemoryFiles, listSnapshotFiles, type DumpFileInfo } from './dumpFiles.ts';
+import { analyzeGcdumpOutput, formatGcdumpReport } from './gcdumpAnalysis.ts';
 import { DumpAnalysisPanel } from '../views/dumpAnalysisPanel.ts';
 import {
   CALL_STACK_TOOL,
+  COUNTERS_TOOL,
   DUMP_TOOL,
   MEMORY_SNAPSHOT_TOOL,
   SYMBOL_TOOL,
@@ -43,14 +46,46 @@ import {
   withSpeedscopeAssociation,
 } from './editorAssociations.ts';
 import { defaultOutputDirectory, listResultFiles, prepareOutputDirectory } from './outputDirectory.ts';
-import { speedscopeFileFor } from './toolArguments.ts';
+import { formatToolDuration, speedscopeFileFor, traceBaseFor } from './toolArguments.ts';
 import type { Logger } from '../logger.ts';
 
 const execFileAsync = promisify(execFile);
 
+/** Параметры записи профиля. */
+export interface ProfilingOptions {
+  /** Профиль `dotnet-trace`; `default` — не передавать `--profile`. */
+  profile?: string;
+  /** Длительность записи в секундах; 0 или пусто — до остановки. */
+  durationSeconds?: number;
+}
+
+/** Параметры снятия дампа памяти. */
+export interface DumpOptions {
+  /** Тип дампа: `Full`, `Heap`, `Mini` или `Triage`. */
+  type?: string;
+  /** Добавить к дампу отчёт о сбое (`--crashreport`). */
+  crashReport?: boolean;
+}
+
+/** Параметры выгрузки счётчиков в файл. */
+export interface CountersExportOptions {
+  /** Формат файла: `csv` или `json`. */
+  format?: string;
+  /** Сколько секунд писать. */
+  durationSeconds?: number;
+  /** Фильтр счётчиков в записи `Provider[A,B]`; пусто — набор инструмента. */
+  counters?: string;
+}
+
 /** Обёртка над внешними инструментами диагностики. */
-export class ProfilingTools {
+export class ProfilingTools implements vscode.Disposable {
   private traceProcess: ChildProcess | undefined;
+
+  /** Признак записи профиля: по нему панель показывает кнопку остановки. */
+  private readonly profilingChanged = new vscode.EventEmitter<boolean>();
+
+  /** Запись профиля началась или закончилась (в том числе сама по `--duration`). */
+  readonly onDidChangeProfiling = this.profilingChanged.event;
 
   /**
    * Предложения про просмотрщик показываем один раз за сессию:
@@ -73,6 +108,12 @@ export class ProfilingTools {
     return this.traceProcess !== undefined;
   }
 
+  dispose(): void {
+    this.profilingChanged.dispose();
+    this.traceProcess?.kill('SIGKILL');
+    this.traceProcess = undefined;
+  }
+
   /**
    * Собирает стек вызовов и показывает его в редакторе.
    * Полезно при зависаниях интерфейса и подозрениях на блокировки.
@@ -92,9 +133,10 @@ export class ProfilingTools {
     );
   }
 
-  /** Снимает дамп памяти (GCDump) и предлагает открыть каталог с файлом. */
+  /** Снимает дамп памяти (GCDump) и предлагает открыть разбор или каталог с файлом. */
   async collectMemorySnapshot(pid: number, dotnetPath: string, outputDirectory: string): Promise<void> {
     const target = path.join(await this.resolveOutputDirectory(outputDirectory), `memory-${pid}-${timestamp()}.gcdump`);
+    let analyzeRequested = false;
 
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: taking a memory snapshot…') },
@@ -105,16 +147,25 @@ export class ProfilingTools {
         }
 
         this.logger.info(translate('Memory snapshot saved: {0}', target));
+        const analyze = translate('Analyse Memory Snapshot');
         const reveal = translate('Reveal in Explorer');
         const action = await vscode.window.showInformationMessage(
           translate('Memory snapshot saved: {0}', path.basename(target)),
+          analyze,
           reveal,
         );
-        if (action) {
+        if (action === analyze) {
+          analyzeRequested = true;
+        } else if (action === reveal) {
           await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
         }
       },
     );
+
+    // Разбор запускается после уведомления: у него свой прогресс и своя панель.
+    if (analyzeRequested) {
+      await this.analyzeMemorySnapshot(dotnetPath, outputDirectory, target);
+    }
   }
 
   /**
@@ -215,23 +266,106 @@ export class ProfilingTools {
   }
 
   /**
+   * Записывает счётчики в файл через `dotnet-counters collect`.
+   *
+   * Живые значения есть в панели, но файл остаётся после закрытия VS Code:
+   * его можно приложить к задаче или разобрать в таблице.
+   */
+  async exportCounters(
+    pid: number,
+    dotnetPath: string,
+    outputDirectory: string,
+    options: CountersExportOptions = {},
+  ): Promise<string | undefined> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const format = options.format === 'json' ? 'json' : 'csv';
+    const seconds = Math.max(1, Math.round(options.durationSeconds ?? 60));
+    const target = path.join(directory, `counters-${pid}-${timestamp()}.${format}`);
+    const executable = await this.locateTool(COUNTERS_TOOL, dotnetPath);
+    if (executable === undefined) {
+      return undefined;
+    }
+
+    const args = [
+      'collect',
+      '-p', pid.toString(),
+      '-o', target,
+      '--format', format,
+      '--duration', formatToolDuration(seconds),
+    ];
+    const counters = options.counters?.trim() ?? '';
+    if (counters.length > 0) {
+      args.push('--counters', counters);
+    }
+
+    this.logger.info(translate('Exporting counters: dotnet-counters collect -p {0} -o {1}', pid, target));
+    const finished = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: translate('Monitor Dotnet: recording counters for {0} s…', seconds),
+        cancellable: true,
+      },
+      (_progress, token) => new Promise<boolean>(resolve => {
+        const child = execFile(executable, args, { maxBuffer: 32 * 1024 * 1024 }, error => {
+          // Отмена по кнопке не ошибка: файл с записанной частью остаётся.
+          if (error !== null && !token.isCancellationRequested) {
+            const text = describeError(error);
+            this.logger.error(translate('Tool {0} failed', COUNTERS_TOOL.command), error);
+            void vscode.window.showErrorMessage(
+              translate('Monitor Dotnet: {0} failed — {1}', COUNTERS_TOOL.purpose, text),
+            );
+            resolve(false);
+            return;
+          }
+
+          resolve(true);
+        });
+
+        token.onCancellationRequested(() => child.kill('SIGINT'));
+      }),
+    );
+
+    if (!finished) {
+      return undefined;
+    }
+
+    this.logger.info(translate('Counters saved: {0}', target));
+    const reveal = translate('Reveal in Explorer');
+    const action = await vscode.window.showInformationMessage(
+      translate('Counters saved: {0}', path.basename(target)),
+      reveal,
+    );
+    if (action === reveal) {
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(target));
+    }
+
+    return target;
+  }
+
+  /**
    * Снимает полный дамп памяти через `dotnet-dump`.
    * Дамп нужен, когда приложение зависло или падает: его можно открыть в `dotnet-dump analyze`
    * и посмотреть стеки, объекты и исключения.
    */
-  async collectMemoryDump(pid: number, dotnetPath: string, outputDirectory: string): Promise<void> {
+  async collectMemoryDump(
+    pid: number,
+    dotnetPath: string,
+    outputDirectory: string,
+    options: DumpOptions = {},
+  ): Promise<void> {
     const target = path.join(await this.resolveOutputDirectory(outputDirectory), `dump-${pid}-${timestamp()}.dmp`);
     let analyzeRequested = false;
 
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: taking a memory dump…') },
       async () => {
-        // Тип Heap: меньше полного дампа, но содержит стеки и управляемую память.
+        // По умолчанию Heap: меньше полного дампа, но содержит стеки и управляемую память.
         const output = await this.runTool(DUMP_TOOL, dotnetPath, [
           'collect',
           '-p', pid.toString(),
           '-o', target,
-          '--type', 'Heap',
+          '--type', options.type ?? 'Heap',
+          ...(options.crashReport === true ? ['--crashreport'] : []),
         ]);
         if (output === undefined) {
           return;
@@ -296,6 +430,132 @@ export class ProfilingTools {
   }
 
   /**
+   * Переводит записанный `.nettrace` в Speedscope и открывает результат.
+   * Нужно для трейсов, записанных раньше или другим инструментом: скорость
+   * разбора не требует повторной записи под нагрузкой.
+   */
+  async convertTrace(dotnetPath: string, outputDirectory: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const trace = await this.pickResultFile(directory, '.nettrace', translate('Select a trace to convert'));
+    if (trace === undefined) {
+      return;
+    }
+
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: converting the trace…') },
+      async () => {
+        // `-o` без расширения: инструмент сам добавит `.speedscope.json`.
+        const output = await this.runTool(TRACE_TOOL, dotnetPath, [
+          'convert', trace,
+          '--format', 'Speedscope',
+          '-o', traceBaseFor(trace),
+        ]);
+        if (output === undefined) {
+          return;
+        }
+
+        const target = speedscopeFileFor(trace);
+        this.logger.info(translate('Trace converted: {0}', target));
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target));
+      },
+    );
+  }
+
+  /**
+   * Показывает самые «дорогие» методы из записанного трейса.
+   * Быстрый ответ «кто занимал стек», когда открывать Speedscope незачем.
+   */
+  async showTraceTopMethods(dotnetPath: string, outputDirectory: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const trace = await this.pickResultFile(directory, '.nettrace', translate('Select a trace to analyse'));
+    if (trace === undefined) {
+      return;
+    }
+
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: reading the trace…') },
+      async () => {
+        const output = await this.runTool(TRACE_TOOL, dotnetPath, [
+          'report', trace,
+          'topN',
+          '-n', '20',
+        ]);
+        if (output === undefined) {
+          return;
+        }
+
+        const document = await vscode.workspace.openTextDocument({ content: output, language: 'plaintext' });
+        await vscode.window.showTextDocument(document, { preview: false });
+      },
+    );
+  }
+
+  /**
+   * Добавляет номера строк к стеку из редактора: `dotnet-stack symbolicate`.
+   *
+   * Нужно, когда стек пришёл из логов или письма: в нём есть Method Token и IL Offset,
+   * но нет имён файлов. Берётся выделение или весь текст редактора.
+   */
+  async symbolicateStack(dotnetPath: string, outputDirectory: string): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    const selected = editor === undefined || editor.selection.isEmpty
+      ? editor?.document.getText()
+      : editor.document.getText(editor.selection);
+    const text = selected?.trim() ?? '';
+    if (text.length === 0) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: open a file with a stack trace to symbolicate it.',
+      ));
+      return;
+    }
+
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const source = path.join(directory, `stack-${timestamp()}.txt`);
+    await writeFile(source, `${text}\n`, 'utf8');
+
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: reading symbol names…') },
+      async () => {
+        // `-c` печатает результат в консоль, файл `.symbolicated` рядом не создаётся.
+        const output = await this.runTool(CALL_STACK_TOOL, dotnetPath, ['symbolicate', source, '-c']);
+        if (output === undefined) {
+          return;
+        }
+
+        this.logger.info(translate('Stack trace symbolicated: {0}', source));
+        const document = await vscode.workspace.openTextDocument({
+          content: output.length > 0 ? output : text,
+          language: 'plaintext',
+        });
+        await vscode.window.showTextDocument(document, { preview: false });
+      },
+    );
+  }
+
+  /** Выбор файла результата: если он один, спрашивать незачем. */
+  private async pickResultFile(directory: string, extension: string, title: string): Promise<string | undefined> {
+    const files = await listResultFiles(directory, extension);
+    if (files.length === 0) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no files with the extension {0} in {1}.',
+        extension,
+        directory,
+      ));
+      return undefined;
+    }
+
+    if (files.length === 1) {
+      return files[0];
+    }
+
+    const picked = await vscode.window.showQuickPick(
+      files.map(file => ({ label: path.basename(file), file })),
+      { title, placeHolder: translate('Newest files first') },
+    );
+    return picked?.file;
+  }
+
+  /**
    * Разбирает дамп памяти командами `dotnet-dump analyze`.
    *
    * Кнопка в заголовке панели берёт самый свежий `.dmp` из каталога результатов,
@@ -340,7 +600,7 @@ export class ProfilingTools {
         }
 
         const generatedAt = new Date();
-        const options = await this.dumpOptions(target);
+        const options = await this.memoryFileOptions(target);
         const report = buildDumpReport(target, analyses, outputs, generatedAt, options);
         const textReport = formatAnalysisReport(target, analyses, outputs, generatedAt, options);
         DumpAnalysisPanel.show(this.extensionUri, report, textReport, this.logger);
@@ -366,12 +626,12 @@ export class ProfilingTools {
 
     const before = firstFile !== undefined && dumps.some(dump => dump.file === firstFile)
       ? firstFile
-      : await this.pickDump(dumps, translate('Select the first dump'));
+      : await this.pickMemoryFile(dumps, translate('Select the first dump'));
     if (before === undefined) {
       return;
     }
 
-    const after = await this.pickDump(dumps, translate('Select the second dump'), before);
+    const after = await this.pickMemoryFile(dumps, translate('Select the second dump'), before);
     if (after === undefined) {
       return;
     }
@@ -419,14 +679,14 @@ export class ProfilingTools {
           analyses,
           beforeOutput,
           generatedAt,
-          await this.dumpOptions(before),
+          await this.memoryFileOptions(before),
         );
         const afterAnalysis = analyzeDumpOutput(
           after,
           analyses,
           afterOutput,
           generatedAt,
-          await this.dumpOptions(after),
+          await this.memoryFileOptions(after),
         );
         const comparison = buildDumpComparison(beforeAnalysis, afterAnalysis);
         const textReport = formatComparisonReport(comparison, generatedAt);
@@ -435,24 +695,126 @@ export class ProfilingTools {
     );
   }
 
-  /** Дампы в каталоге результатов: для панели «Дампы». */
+  /**
+   * Разбирает снимок памяти `dotnet-gcdump report`.
+   *
+   * Снимок снимается быстро и не останавливает процесс, поэтому он первый шаг
+   * при поиске утечки. Раньше файл только сохранялся и открыть его было нечем;
+   * теперь те же панели, что и у дампа, строятся из отчёта инструмента.
+   */
+  async analyzeMemorySnapshot(dotnetPath: string, outputDirectory: string, snapshotFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const target = snapshotFile ?? (await listResultFiles(directory, '.gcdump'))[0];
+    if (target === undefined) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no memory snapshot found in {0}. Take a memory snapshot first.',
+        directory,
+      ));
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: translate('Monitor Dotnet: analysing {0}…', path.basename(target)),
+      },
+      async () => {
+        this.logger.info(translate('Snapshot analysis of {0}', target));
+        const output = await this.runTool(MEMORY_SNAPSHOT_TOOL, dotnetPath, ['report', target]);
+        if (output === undefined) {
+          return;
+        }
+
+        const generatedAt = new Date();
+        const options = await this.memoryFileOptions(target);
+        const analysis = analyzeGcdumpOutput(target, output, generatedAt, options);
+        const textReport = formatGcdumpReport(target, output, generatedAt, options);
+        DumpAnalysisPanel.show(this.extensionUri, analysis.report, textReport, this.logger);
+      },
+    );
+  }
+
+  /**
+   * Сравнивает два снимка памяти: что выросло в куче между ними.
+   * Сравнение идёт по тем же правилам, что и у дампов, — меняются только команды.
+   */
+  async compareMemorySnapshots(dotnetPath: string, outputDirectory: string, firstFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const snapshots = await listSnapshotFiles(directory);
+    if (snapshots.length < 2) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: at least two memory snapshots are needed for comparison.',
+      ));
+      return;
+    }
+
+    const before = firstFile !== undefined && snapshots.some(snapshot => snapshot.file === firstFile)
+      ? firstFile
+      : await this.pickMemoryFile(snapshots, translate('Select the first snapshot'));
+    if (before === undefined) {
+      return;
+    }
+
+    const after = await this.pickMemoryFile(snapshots, translate('Select the second snapshot'), before);
+    if (after === undefined) {
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: translate('Monitor Dotnet: comparing snapshots…'),
+      },
+      async progress => {
+        const collect = async (file: string): Promise<ReturnType<typeof analyzeGcdumpOutput> | undefined> => {
+          const output = await this.runTool(MEMORY_SNAPSHOT_TOOL, dotnetPath, ['report', file]);
+          if (output === undefined) {
+            return undefined;
+          }
+
+          const generatedAt = new Date();
+          return analyzeGcdumpOutput(file, output, generatedAt, await this.memoryFileOptions(file));
+        };
+
+        progress.report({ message: translate('Analysing {0}…', path.basename(before)) });
+        const beforeAnalysis = await collect(before);
+        if (beforeAnalysis === undefined) {
+          return;
+        }
+
+        progress.report({ message: translate('Analysing {0}…', path.basename(after)) });
+        const afterAnalysis = await collect(after);
+        if (afterAnalysis === undefined) {
+          return;
+        }
+
+        this.logger.info(translate('Snapshot comparison of {0} and {1}', before, after));
+        const generatedAt = new Date();
+        const comparison = buildDumpComparison(beforeAnalysis, afterAnalysis);
+        const textReport = formatComparisonReport(comparison, generatedAt);
+        DumpAnalysisPanel.showComparison(this.extensionUri, comparison, textReport, this.logger);
+      },
+    );
+  }
+
+  /** Дампы и снимки памяти в каталоге результатов: для панели «Дампы». */
   async listDumps(outputDirectory: string): Promise<DumpFileInfo[]> {
     // Каталог не создаём: панель открывается при активации и не должна оставлять следов.
     const directory = outputDirectory.length === 0
       ? defaultOutputDirectory(currentWorkspaceFolder())
       : path.resolve(outputDirectory);
-    return listDumpFiles(directory);
+    return listMemoryFiles(directory);
   }
 
   /** Время и размер файла дампа для заголовка отчёта. */
-  private async dumpOptions(file: string): Promise<{ takenAt?: Date; dumpBytes?: number }> {
+  private async memoryFileOptions(file: string): Promise<{ takenAt?: Date; dumpBytes?: number }> {
     // Время снятия дампа берём у файла: внутри дампа удобной метки нет.
     const info = await stat(file).catch(() => undefined);
     return { takenAt: info?.mtime, dumpBytes: info?.size };
   }
 
   /** Выбор дампа для сравнения: свежие первыми. */
-  private async pickDump(
+  private async pickMemoryFile(
     dumps: readonly DumpFileInfo[],
     title: string,
     exclude?: string,
@@ -481,11 +843,14 @@ export class ProfilingTools {
 
   /**
    * Выбор наборов анализа. Можно взять несколько: например, стек потоков
-   * и статистику кучи из одного и того же дампа.
+   * и статистику кучи из одного и того же дампа. Последний пункт — свои команды:
+   * остальные наборы покрывают типовые вопросы, но SOS умеет больше.
    */
   private async pickAnalyses(): Promise<SosAnalysis[] | undefined> {
     interface AnalysisItem extends vscode.QuickPickItem {
       analysis?: SosAnalysis;
+      /** Пункт «свои команды»: вместо набора открывает поле ввода. */
+      custom?: boolean;
     }
 
     const items: AnalysisItem[] = SOS_ANALYSES.map(analysis => {
@@ -496,6 +861,13 @@ export class ProfilingTools {
         picked: DEFAULT_ANALYSIS_IDS.includes(analysis.id),
         analysis,
       };
+    });
+
+    items.push({
+      label: `$(edit) ${translate('Custom SOS commands…')}`,
+      description: translate('Any SOS commands, one per line'),
+      picked: false,
+      custom: true,
     });
 
     const picked = await vscode.window.showQuickPick(items, {
@@ -511,6 +883,19 @@ export class ProfilingTools {
       .map(item => item.analysis)
       .filter((analysis): analysis is SosAnalysis => analysis !== undefined);
 
+    if (picked.some(item => item.custom === true)) {
+      const input = await vscode.window.showInputBox({
+        title: translate('Custom SOS commands'),
+        prompt: translate('One command per line, for example dumpheap -stat'),
+        placeHolder: 'clrstack -all',
+      });
+
+      const commands = input === undefined ? [] : commandsFromInput(input);
+      if (commands.length > 0) {
+        analyses.push({ id: 'custom', commands });
+      }
+    }
+
     if (analyses.length === 0) {
       void vscode.window.showWarningMessage(translate('Monitor Dotnet: nothing was selected for analysis.'));
       return undefined;
@@ -522,8 +907,15 @@ export class ProfilingTools {
   /**
    * Запускает запись профиля производительности.
    * Запись идёт до команды остановки — процесс `dotnet-trace` остаётся запущенным.
+   * Если задана длительность, инструмент останавливается сам: это удобно для
+   * воспроизводимого замера, который не зависит от реакции пользователя.
    */
-  async startProfiling(pid: number, dotnetPath: string, outputDirectory: string): Promise<string | undefined> {
+  async startProfiling(
+    pid: number,
+    dotnetPath: string,
+    outputDirectory: string,
+    options: ProfilingOptions = {},
+  ): Promise<string | undefined> {
     if (this.traceProcess !== undefined) {
       void vscode.window.showWarningMessage(translate('Monitor Dotnet: profiling is already running.'));
       return undefined;
@@ -540,20 +932,34 @@ export class ProfilingTools {
       return undefined;
     }
 
-    this.logger.info(translate('Starting profiling: dotnet-trace collect -p {0} -o {1}', pid, target));
-    const child = spawn(executable, [
+    const durationSeconds = options.durationSeconds ?? 0;
+    const args = [
       'collect',
       '-p', pid.toString(),
       '-o', target,
       // Формат speedscope открывается в браузере и в VS Code без дополнительных инструментов.
       '--format', 'Speedscope',
-    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    ];
+
+    // `--profile default` не существует: набор по умолчанию — это отсутствие параметра.
+    if (options.profile !== undefined && options.profile.length > 0 && options.profile !== 'default') {
+      args.push('--profile', options.profile);
+    }
+
+    if (durationSeconds > 0) {
+      args.push('--duration', formatToolDuration(durationSeconds));
+    }
+
+    this.logger.info(translate('Starting profiling: dotnet-trace collect -p {0} -o {1}', pid, target));
+    const child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
 
     this.traceProcess = child;
+    this.profilingChanged.fire(true);
     child.stdout?.on('data', data => this.logger.raw(String(data).trimEnd()));
     child.stderr?.on('data', data => this.logger.raw(String(data).trimEnd()));
     child.on('exit', code => {
       this.traceProcess = undefined;
+      this.profilingChanged.fire(false);
       // `--format Speedscope` кладёт рядом готовый для speedscope.app файл.
       const speedscope = speedscopeFileFor(target);
       this.logger.info(translate(

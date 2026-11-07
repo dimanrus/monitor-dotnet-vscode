@@ -2,6 +2,32 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
+## [Unreleased] 🧰
+
+### 🧠 Memory snapshots
+
+- 🧠 **Analyse Memory Snapshot** runs `dotnet-gcdump report` and opens the same graphical panel as a dump: overview metrics, findings and a filterable heap table. Previously the `.gcdump` file was only saved and nothing in VS Code could read it
+- 🔀 **Compare Memory Snapshots…** shows which types grew or shrank between two snapshots
+- 🗂️ The **Dumps** view now lists `.gcdump` files next to `.dmp` dumps, each with its own actions; snapshots also open from the Explorer context menu
+
+### ⏺️ Traces
+
+- 🎚️ `monitor-dotnet.traceProfile`: record with `dotnet-common`, `dotnet-sampled-thread-time`, `gc-verbose`, `gc-collect` or `database` instead of only the default set
+- ⏱️ `monitor-dotnet.traceDurationSeconds`: stop the recording automatically after the given time, including when nobody presses **Stop**
+- 🔄 **Convert Trace to Speedscope…**: convert an already recorded `.nettrace` without recording a new one
+- 🔝 **Show Top Methods in Trace…**: `dotnet-trace report topN` opens the hottest methods in an editor
+
+### 🗄️ Dumps
+
+- 🎛️ `monitor-dotnet.dumpType` (`Full`, `Heap`, `Mini`, `Triage`) and `monitor-dotnet.dumpCrashReport` for `dotnet-dump collect`
+- ⌨️ **Custom SOS commands** in the analysis picker: any command, one per line, in its own session next to the presets
+
+### 🔢 Counters and stacks
+
+- ➕ **Add to Collection Filter** on any counter, meter or group in the **Counters** view: the setting is updated for you
+- 📤 **Record Counters to File** with `dotnet-counters collect`: CSV or JSON for 30 seconds, 1 minute or 5 minutes
+- 🏷️ **Add Line Numbers to Stack Trace** with `dotnet-stack symbolicate`: resolves method tokens from a stack trace in the editor
+
 ## [1.2.0] — 2026-11-07 🐛
 
 ### 🐛 Process detection

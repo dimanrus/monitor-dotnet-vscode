@@ -19,6 +19,7 @@ import { ProfilingTools } from './monitor/profilingTools.ts';
 import { activateLocalization } from './localization.ts';
 import { getSettings, onDidChangeSettings, openSettings, type MonitorSettings } from './settings.ts';
 import { CountersTreeProvider } from './views/countersTreeProvider.ts';
+import { withCounterFilter, withMetricFilter } from './core/counterFilters.ts';
 import { EnvironmentTreeProvider } from './views/environmentTreeProvider.ts';
 import { collectIssues } from './core/issueSource.ts';
 import { IssueStore } from './core/issueStore.ts';
@@ -134,12 +135,18 @@ export function activate(context: vscode.ExtensionContext): void {
   void vscode.commands.executeCommand('setContext', 'monitor-dotnet.isMonitoring', false);
   void vscode.commands.executeCommand('setContext', 'monitor-dotnet.isProfiling', false);
 
+  // Запись профиля может закончиться сама — например, когда задана длительность.
+  profiling.onDidChangeProfiling(running => {
+    void vscode.commands.executeCommand('setContext', 'monitor-dotnet.isProfiling', running);
+  });
+
   // Сессия, для которой сейчас идёт мониторинг: нужна, чтобы остановиться при её завершении.
   let monitoredSessionId: string | undefined;
 
   context.subscriptions.push(
     logger,
     performancePanel,
+    profiling,
     issuesProvider,
     countersProvider,
     environmentProvider,
@@ -242,6 +249,9 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.setStatusBarMessage(translate('Value copied to clipboard'), 3000);
       }
     }),
+    // Дополнение фильтров прямо из дерева: не нужно вспоминать имена счётчиков.
+    vscode.commands.registerCommand('monitor-dotnet.addMonitorFilter', (node?: unknown) =>
+      addMonitorFilter(node)),
     vscode.commands.registerCommand('monitor-dotnet.filterEnvironment', async () => {
       const filter = await vscode.window.showInputBox({
         prompt: translate('Filter by variable name or value (empty to reset)'),
@@ -262,6 +272,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const pid = requirePid(controller);
       if (pid !== undefined) {
         await profiling.collectMemorySnapshot(pid, settings.dotnetPath, settings.profilingOutputDirectory);
+        // Снимок теперь тоже попадает в панель «Дампы».
+        dumpsProvider.refresh();
       }
     }),
     vscode.commands.registerCommand('monitor-dotnet.startProfiling', async () => {
@@ -270,15 +282,63 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      const target = await profiling.startProfiling(pid, settings.dotnetPath, settings.profilingOutputDirectory);
+      const target = await profiling.startProfiling(pid, settings.dotnetPath, settings.profilingOutputDirectory, {
+        profile: settings.traceProfile,
+        durationSeconds: settings.traceDurationSeconds,
+      });
       if (target !== undefined) {
-        await vscode.commands.executeCommand('setContext', 'monitor-dotnet.isProfiling', true);
         void vscode.window.showInformationMessage(translate('Monitor Dotnet: profiling started ({0}).', target));
       }
     }),
     vscode.commands.registerCommand('monitor-dotnet.stopProfiling', async () => {
       await profiling.stopProfiling();
-      await vscode.commands.executeCommand('setContext', 'monitor-dotnet.isProfiling', false);
+    }),
+    // Записанный ранее трейс: конвертация в Speedscope и быстрый отчёт по методам.
+    vscode.commands.registerCommand('monitor-dotnet.convertTrace', async () => {
+      await profiling.convertTrace(settings.dotnetPath, settings.profilingOutputDirectory);
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.traceTopMethods', async () => {
+      await profiling.showTraceTopMethods(settings.dotnetPath, settings.profilingOutputDirectory);
+    }),
+    // Выгрузка счётчиков в файл: формат и длительность спрашиваем один раз на запуск.
+    vscode.commands.registerCommand('monitor-dotnet.exportCounters', async () => {
+      const pid = requirePid(controller);
+      if (pid === undefined) {
+        return;
+      }
+
+      const format = await vscode.window.showQuickPick(
+        [
+          { label: translate('CSV (opens in a spreadsheet)'), value: 'csv' },
+          { label: translate('JSON'), value: 'json' },
+        ],
+        { title: translate('Counter file format') },
+      );
+      if (format === undefined) {
+        return;
+      }
+
+      const duration = await vscode.window.showQuickPick(
+        [
+          { label: translate('30 seconds'), value: 30 },
+          { label: translate('1 minute'), value: 60 },
+          { label: translate('5 minutes'), value: 300 },
+        ],
+        { title: translate('How long to record counters') },
+      );
+      if (duration === undefined) {
+        return;
+      }
+
+      await profiling.exportCounters(pid, settings.dotnetPath, settings.profilingOutputDirectory, {
+        format: format.value,
+        durationSeconds: duration.value,
+        counters: settings.counterProviders.join(','),
+      });
+    }),
+    // Имена файлов и строк в стеке из логов: `dotnet-stack symbolicate`.
+    vscode.commands.registerCommand('monitor-dotnet.symbolicateStack', async () => {
+      await profiling.symbolicateStack(settings.dotnetPath, settings.profilingOutputDirectory);
     }),
     // Полный дамп памяти: нужен, когда приложение зависло или падает.
     vscode.commands.registerCommand('monitor-dotnet.collectMemoryDump', async () => {
@@ -287,7 +347,10 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
-      await profiling.collectMemoryDump(pid, settings.dotnetPath, settings.profilingOutputDirectory);
+      await profiling.collectMemoryDump(pid, settings.dotnetPath, settings.profilingOutputDirectory, {
+        type: settings.dumpType,
+        crashReport: settings.dumpCrashReport,
+      });
       dumpsProvider.refresh();
     }),
     // Открыть последний профиль Speedscope: файл лежит в каталоге результатов.
@@ -299,6 +362,21 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('monitor-dotnet.analyzeMemoryDump', async (uri?: vscode.Uri) => {
       const dumpFile = uri?.scheme === 'file' ? uri.fsPath : undefined;
       await profiling.analyzeMemoryDump(settings.dotnetPath, settings.profilingOutputDirectory, dumpFile);
+    }),
+    // Разбор снимка памяти: `dotnet-gcdump report` строит ту же панель, что и дамп.
+    vscode.commands.registerCommand('monitor-dotnet.analyzeMemorySnapshot', async (target?: unknown) => {
+      await profiling.analyzeMemorySnapshot(
+        settings.dotnetPath,
+        settings.profilingOutputDirectory,
+        dumpFileFromArgument(target),
+      );
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.compareSnapshots', async (target?: unknown) => {
+      await profiling.compareMemorySnapshots(
+        settings.dotnetPath,
+        settings.profilingOutputDirectory,
+        dumpFileFromArgument(target),
+      );
     }),
     // Символы к дампу: без них в дампе не видно имён функций.
     vscode.commands.registerCommand('monitor-dotnet.downloadSymbols', async () => {
@@ -833,8 +911,57 @@ function requirePid(controller: MonitorController): number | undefined {
   return pid;
 }
 
-/** Путь к дампу из аргумента команды: элемент дерева, Uri или строка. */
-function dumpFileFromArgument(value: unknown): string | undefined {
+/** Узел дерева Counters в том виде, в каком он приходит в команду. */
+interface CounterFilterNode {
+  data?: {
+    kind?: unknown;
+    label?: unknown;
+    provider?: unknown;
+    name?: unknown;
+  };
+}
+
+/**
+ * Добавляет выбранный счётчик, инструмент или всю группу в фильтры сбора.
+ * Настройка пишется в рабочую область: её видно в settings.json проекта,
+ * а мониторинг перезапускается сам — существующее отслеживание изменений.
+ */
+async function addMonitorFilter(target: unknown): Promise<void> {
+  const data = (target as CounterFilterNode | undefined)?.data;
+  const kind = data?.kind;
+  const provider = typeof data?.provider === 'string'
+    ? data.provider
+    : typeof data?.label === 'string' ? data.label : undefined;
+
+  if ((kind !== 'counter' && kind !== 'metric') || provider === undefined || provider.length === 0) {
+    return;
+  }
+
+  const name = typeof data?.name === 'string' ? data.name : undefined;
+  const isCounter = kind === 'counter';
+  const setting = isCounter ? 'counterProviders' : 'metricProviders';
+  const configuration = vscode.workspace.getConfiguration('monitor-dotnet');
+  const current = configuration.get<string[]>(setting, []);
+  const next = isCounter
+    ? withCounterFilter(current, provider, name)
+    : withMetricFilter(current, provider, name);
+
+  const unchanged = next.length === current.length && next.every((value, index) => value === current[index]);
+  if (unchanged) {
+    void vscode.window.showInformationMessage(translate('Monitor Dotnet: {0} is already collected.', provider));
+    return;
+  }
+
+  // Без открытой папки запись в настройки рабочей области невозможна: пишем в пользовательские.
+  const configurationTarget = vscode.workspace.workspaceFolders === undefined
+    ? vscode.ConfigurationTarget.Global
+    : vscode.ConfigurationTarget.Workspace;
+
+  await configuration.update(setting, next, configurationTarget);
+  void vscode.window.setStatusBarMessage(translate('Collection filter updated: {0}', next.join(', ')), 4000);
+}
+
+/** Путь к дампу из аргумента команды: элемент дерева, Uri или строка. */function dumpFileFromArgument(value: unknown): string | undefined {
   if (typeof value === 'string' && value.length > 0) {
     return value;
   }

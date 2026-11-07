@@ -11,6 +11,12 @@ import type { CounterSample, MetricSample } from './monitorState.ts';
 export interface CounterItemData {
   /** Уникальный ключ (используется для идентификации узла дерева). */
   key: string;
+  /** Вид записи: счётчик EventCounters или инструмент метра. */
+  kind: 'counter' | 'metric';
+  /** Имя провайдера или метра: нужно для фильтров сбора. */
+  provider: string;
+  /** Имя счётчика или инструмента: нужно для фильтров сбора. */
+  name: string;
   /** Отображаемое имя счётчика или инструмента. */
   label: string;
   /** Текущее значение с единицами измерения. */
@@ -46,6 +52,9 @@ export function groupCounters(
 
     group.items.push({
       key: `counter:${counter.provider}:${counter.name}`,
+      kind: 'counter' as const,
+      provider: counter.provider,
+      name: counter.name,
       label: counter.displayName ?? counter.name,
       description: formatCounterValue(counter),
       tooltip: `${counter.provider} · ${counter.name}\n${describeCounter(counter)}`,
@@ -65,6 +74,9 @@ export function groupCounters(
     const tags = metric.tags ? ` ${truncate(metric.tags, 40)}` : '';
     group.items.push({
       key: `metric:${metric.meter}:${metric.instrument}:${metric.tags ?? ''}`,
+      kind: 'metric' as const,
+      provider: metric.meter,
+      name: metric.instrument,
       label: metric.instrument + tags,
       description: formatMetricValue(metric),
       tooltip: `${metric.meter} · ${metric.instrument}\n${describeMetric(metric)}`,

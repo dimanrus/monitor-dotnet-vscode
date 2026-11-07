@@ -91,6 +91,10 @@ const ANALYSIS_TEXT: Record<string, () => SosAnalysisText> = {
     title: translate('Finalization queue'),
     description: translate('Objects waiting for the finalizer and the queue state'),
   }),
+  custom: () => ({
+    title: translate('Custom commands'),
+    description: translate('Commands typed for this run'),
+  }),
 };
 
 /** Название и подсказка набора: `undefined` для неизвестного идентификатора. */
@@ -493,6 +497,10 @@ export interface DumpFacts {
  * В `heap` и `async` попадают только крупнейшие записи, а итоги считаются по всем.
  */
 export interface DumpReport {
+  /** Заголовок отчёта: у снимка памяти он свой, у дампа — общий. */
+  title?: string;
+  /** Что разбирали: дамп памяти или снимок GCDump. */
+  source?: 'dump' | 'gcdump';
   dumpFile: string;
   /** Когда создан отчёт (а не когда снят дамп). */
   generatedAt: string;
@@ -1734,6 +1742,8 @@ export interface TypeChange {
 
 /** Результат сравнения двух дампов. */
 export interface DumpComparison {
+  /** Заголовок: у сравнения снимков памяти он свой. */
+  title?: string;
   before: DumpReport;
   after: DumpReport;
   typeChanges: TypeChange[];
@@ -1891,6 +1901,7 @@ export function buildComparisonFindings(
 export function buildDumpComparison(before: DumpAnalysis, after: DumpAnalysis): DumpComparison {
   const typeChanges = compareHeapTypes(before.facts.heap, after.facts.heap);
   return {
+    title: before.report.source === 'gcdump' ? translate('Memory snapshot comparison') : undefined,
     before: before.report,
     after: after.report,
     typeChanges,

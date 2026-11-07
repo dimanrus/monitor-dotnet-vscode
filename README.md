@@ -36,8 +36,10 @@
 | 🧵 | **Call stack** | Snapshot the call stack of the running process |
 | 💾 | **Memory snapshot** | Collect a GCDump and reveal it in the file manager |
 | 🧠 | **Dump analysis** | Run `dotnet-dump` SOS commands on a `.dmp` and get a graphical report with charts |
-| 🗂️ | **Dumps view** | Every `.dmp` from the output folder in one list: open one for analysis or compare two dumps |
-| ⏺️ | **Profiling** | Record a `dotnet-trace` profile in the Speedscope format |
+| 🗂️ | **Dumps view** | Every `.dmp` and `.gcdump` from the output folder in one list: open one for analysis or compare two files |
+| 🧠 | **Snapshot analysis** | `dotnet-gcdump report` for a `.gcdump`: heap by type in the same panel, with comparison between two snapshots |
+| ⏺️ | **Profiling** | Record a `dotnet-trace` profile in the Speedscope format, with a profile and a time limit |
+| 🔄 | **Trace files** | Convert an existing `.nettrace` to Speedscope or show its hottest methods |
 | 🌍 | **Two languages** | English and Russian, following the VS Code display language |
 | 📟 | **Status bar** | CPU load and private memory always in sight |
 
@@ -49,7 +51,7 @@
 | --- | --- | --- |
 | 🖥️ | **VS Code 1.100 or newer** | Webview, localization and tree APIs in use. The minimum is enforced: `@types/vscode` is pinned to 1.100.0, so the build fails if an API newer than 1.100 is used |
 | 🟣 | **.NET 10 runtime** | The bundled bridge that reads EventPipe is a `net10.0` app, and it is started through `dotnet`. `dotnet` must be on `PATH`, otherwise set `monitor-dotnet.dotnetPath` |
-| 🔬 | `dotnet-stack`, `dotnet-gcdump`, `dotnet-trace` *(optional)* | Needed for a call stack snapshot, a memory snapshot and profiling. The extension offers to install a missing tool with one command |
+| 🔬 | `dotnet-stack`, `dotnet-gcdump`, `dotnet-trace`, `dotnet-dump`, `dotnet-symbol`, `dotnet-counters` *(optional)* | Needed for a call stack snapshot, memory snapshots, profiling, dumps, symbols and counter export. The extension offers to install a missing tool with one command |
 
 For Aspire projects the Aspire CLI has to be installed: it is the CLI that starts the AppHost project. The Aspire extension for VS Code is optional — monitoring attaches to the same process as the debugger.
 
@@ -170,6 +172,9 @@ Pick what to collect in the settings:
 "monitor-dotnet.metricProviders": ["*"]  // all meters, or "MyMeter", or "MyMeter\\MyInstrument"
 ```
 
+Right-click any counter, meter or group and choose **Add to Collection Filter**: the extension updates the
+matching setting for you and restarts the bridge to apply it.
+
 ---
 
 ## 🌱 Environment
@@ -189,10 +194,13 @@ Buttons in the Performance view title bar:
 | Button | Tool | Result |
 | --- | --- | --- |
 | 🧵 **Collect Call Stack** | `dotnet-stack` | Call stack of every thread in a new editor tab |
-| 💾 **Get Memory Snapshot (GCDump)** | `dotnet-gcdump` | `.gcdump` file, revealed in the file manager |
+| 💾 **Get Memory Snapshot (GCDump)** | `dotnet-gcdump` | `.gcdump` file, revealed in the file manager; **Analyse Memory Snapshot** reads it back as a heap table |
 | 🗄️ **Take Memory Dump** | `dotnet-dump` | `.dmp` file of type Heap: stacks and managed memory for `dotnet-dump analyze` |
-| 🧠 **Analyse Memory Dump** | `dotnet-dump` | Graphical report: summary tiles, heap and async charts, and the full command output in collapsible blocks. The button takes the newest `.dmp` from the output folder; right-click any `.dmp` to analyse a specific file |
-| ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` **and** a ready `.speedscope.json` next to it |
+| ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` **and** a ready `.speedscope.json` next to it; the profile and duration come from the settings |
+| 🔄 **Convert Trace to Speedscope…** | `dotnet-trace` | Converts a `.nettrace` from the output folder without recording a new one |
+| 🔝 **Show Top Methods in Trace…** | `dotnet-trace` | `report topN`: the methods that stayed on the call stack the longest |
+| 📤 **Record Counters to File** | `dotnet-counters` | CSV or JSON for 30 seconds, 1 minute or 5 minutes |
+| 🏷️ **Add Line Numbers to Stack Trace** | `dotnet-stack` | `symbolicate`: file and line for a stack trace from logs, taken from the editor |
 | 🔎 **Open Speedscope Profile** | — | Opens the newest `.speedscope.json` from the output folder (a picker appears if there are several) |
 | ⬇️ **Download Symbols for Dumps** | `dotnet-symbol` | PDB/DBG files next to the dumps, so stack traces show function names |
 
@@ -200,9 +208,14 @@ Results go to the `.monitor-dotnet` folder of the project, together with a `.git
 out of the repository. Set `monitor-dotnet.profilingOutputDirectory` to put them somewhere else.
 If a tool is missing, the extension offers to install it with one command (`dotnet tool install --global …`).
 
+Dumps and snapshots are analysed from the **Dumps** view: click a file there (or right-click it in the
+Explorer) and the graphical report opens.
+
 Dump analysis runs `dotnet-dump analyze` in non-interactive mode on the newest `.dmp` from the output folder
 (or on the file you right-clicked in the Explorer). Pick one or more presets — **Overview**,
-**Thread stacks**, **Heap by type**, **Async and thread pool**, **Exceptions**, **Locks** and **Finalization queue**.
+**Thread stacks**, **Heap by type**, **Async and thread pool**, **Exceptions**, **Locks** and **Finalization queue** —
+or **Custom SOS commands** to type any command, one per line. The dump type is set by `monitor-dotnet.dumpType`
+(`Full`, `Heap`, `Mini`, `Triage`), and `monitor-dotnet.dumpCrashReport` adds a crash report to it.
 The result opens in a graphical panel styled like VS Code: overview metrics, automatic findings and a separate
 interactive panel for every command: a thread table from `clrthreads`, GC segment sizes from `eeheap -gc`, a
 filterable heap table, sync blocks, expandable thread stacks with application frames highlighted, thread pool
@@ -219,9 +232,11 @@ A dump is a single moment in time, not a time range: the panel shows the process
 dump was taken. The header shows the dump file time and size separately from the report creation time.
 The live CPU and memory charts in the Performance panel are the time series; the dump page is one snapshot.
 
-The **Dumps** view lists every `.dmp` from the output folder. Click a file to analyse it, or use
-**Compare Dumps…** to pick two dumps: the report shows what changed in the heap, threads, async state
-machines and exception objects, with the types that grew or shrank the most.
+The **Dumps** view lists every `.dmp` and `.gcdump` from the output folder. Click a file to analyse it, or use
+**Compare Dumps…** / **Compare Memory Snapshots…** to pick two files: the report shows what changed in the heap,
+threads, async state machines and exception objects, with the types that grew or shrank the most.
+A snapshot is read with `dotnet-gcdump report`: the same panel, but only heap data — the tool lists objects
+grouped by exact size, and the extension sums them per type.
 
 When you open a profile for the first time, the extension offers to install
 [Speedscope in VS Code](https://marketplace.visualstudio.com/items?itemName=sransara.speedscope-in-vscode) and to add
@@ -253,6 +268,10 @@ Both steps are optional — without the viewer the file opens as plain JSON, and
 | `monitor-dotnet.bridgePath` | empty | Bridge assembly; empty means the bundled copy |
 | `monitor-dotnet.processNameFilter` | empty | Extra substring to find the debuggee process |
 | `monitor-dotnet.profilingOutputDirectory` | empty | Where profile and snapshot files are written |
+| `monitor-dotnet.traceProfile` | `default` | `dotnet-trace` profile: `dotnet-common`, `dotnet-sampled-thread-time`, `gc-verbose`, `gc-collect` or `database` |
+| `monitor-dotnet.traceDurationSeconds` | `0` | Record the profile for this many seconds; `0` records until you stop it |
+| `monitor-dotnet.dumpType` | `Heap` | Dump type for `dotnet-dump`: `Full`, `Heap`, `Mini` or `Triage` |
+| `monitor-dotnet.dumpCrashReport` | `false` | Add a crash report to the memory dump |
 
 ---
 

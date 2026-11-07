@@ -30,7 +30,8 @@ export class CountersTreeProvider implements vscode.TreeDataProvider<CountersNod
       item.id = element.data.key;
       item.description = element.data.description;
       item.tooltip = new vscode.MarkdownString(`\`\`\`\n${element.data.tooltip}\n\`\`\``);
-      item.contextValue = 'counterValue';
+      // Вид значения нужен контекстному меню: счётчики и метрики настраиваются разными списками.
+      item.contextValue = element.data.kind === 'counter' ? 'counterValue' : 'metricValue';
       return item;
     }
 

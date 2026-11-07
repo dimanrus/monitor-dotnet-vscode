@@ -7,6 +7,21 @@ import * as vscode from 'vscode';
 /** Режим автоматического запуска мониторинга. */
 export type EnableMonitoringMode = 'onDebugOrRun' | 'onDebug' | 'never';
 
+/**
+ * Профиль записи `dotnet-trace`.
+ * `default` — не передавать `--profile`: инструмент берёт свой набор провайдеров.
+ */
+export type TraceProfile =
+  | 'default'
+  | 'dotnet-common'
+  | 'dotnet-sampled-thread-time'
+  | 'gc-verbose'
+  | 'gc-collect'
+  | 'database';
+
+/** Тип дампа памяти для `dotnet-dump collect --type`. */
+export type DumpType = 'Full' | 'Heap' | 'Mini' | 'Triage';
+
 export interface MonitorSettings {
   enableMonitoring: EnableMonitoringMode;
   autoReveal: boolean;
@@ -19,6 +34,12 @@ export interface MonitorSettings {
   processNameFilter: string;
   profilingOutputDirectory: string;
   enableIssueDetection: boolean;
+  traceProfile: TraceProfile;
+  /** Длительность записи профиля в секундах; 0 — до остановки. */
+  traceDurationSeconds: number;
+  dumpType: DumpType;
+  /** Добавлять к дампу отчёт о сбое (`--crashreport`). */
+  dumpCrashReport: boolean;
 }
 
 const CONFIGURATION_SECTION = 'monitor-dotnet';
@@ -39,6 +60,10 @@ export function getSettings(): MonitorSettings {
     processNameFilter: (configuration.get<string>('processNameFilter', '') || '').trim(),
     profilingOutputDirectory: (configuration.get<string>('profilingOutputDirectory', '') || '').trim(),
     enableIssueDetection: configuration.get<boolean>('enableIssueDetection', true),
+    traceProfile: configuration.get<TraceProfile>('traceProfile', 'default'),
+    traceDurationSeconds: clamp(configuration.get<number>('traceDurationSeconds', 0), 0, 86_400),
+    dumpType: configuration.get<DumpType>('dumpType', 'Heap'),
+    dumpCrashReport: configuration.get<boolean>('dumpCrashReport', false),
   };
 }
 

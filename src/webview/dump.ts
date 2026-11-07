@@ -111,7 +111,7 @@ function render(): void {
     return;
   }
 
-  document.title = strings.title;
+  document.title = report.title ?? strings.title;
   const root = byId('root');
   root.textContent = '';
   root.append(renderHeader(report));
@@ -143,7 +143,7 @@ function renderHeader(current: DumpReport): HTMLElement {
 
   meta.append(el('span', 'meta subtle', formatTemplate(strings.generated, current.generatedAt)));
   text.append(
-    el('div', 'eyebrow', strings.title),
+    el('div', 'eyebrow', current.title ?? strings.title),
     title,
     el('div', 'path', current.dumpFile),
     meta,
@@ -1038,7 +1038,7 @@ function renderExceptionCard(entry: DumpExceptionInfo): HTMLElement {
 
 /** Панель сравнения двух дампов. */
 function renderComparison(current: DumpComparison): void {
-  document.title = strings.comparisonTitle;
+  document.title = current.title ?? strings.comparisonTitle;
   const root = byId('root');
   root.textContent = '';
   root.append(renderComparisonHeader(current));
@@ -1065,7 +1065,7 @@ function renderComparisonHeader(current: DumpComparison): HTMLElement {
   const header = el('header', 'toolbar');
   const text = el('div', 'toolbar-text');
   text.append(
-    el('div', 'eyebrow', strings.comparisonTitle),
+    el('div', 'eyebrow', current.title ?? strings.comparisonTitle),
     el('h1', 'toolbar-title', `${baseName(current.before.dumpFile)} ↔ ${baseName(current.after.dumpFile)}`),
     el('div', 'path', current.before.dumpFile),
     el('div', 'path', current.after.dumpFile),
