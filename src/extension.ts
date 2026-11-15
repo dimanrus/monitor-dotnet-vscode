@@ -162,6 +162,28 @@ export function activate(context: vscode.ExtensionContext): void {
   let monitoredSessionId: string | undefined;
 
   /**
+   * Показывает отчёт о сбое, который среда выполнения оставила рядом с дампом
+   * (`DOTNET_EnableCrashReport`, Linux и macOS): в нём управляемые стеки упавшего процесса.
+   */
+  const offerCrashReport = async (info: TargetExitInfo): Promise<void> => {
+    const report = info.crashReportPath;
+    if (report === null || report.length === 0) {
+      return;
+    }
+
+    logger.warn(translate('Monitor Dotnet: the application left a crash report: {0}', report));
+    const open = translate('Open crash report');
+    const action = await vscode.window.showWarningMessage(
+      translate('Monitor Dotnet: the application crashed. A crash report with the managed stack traces is available.'),
+      open,
+    );
+
+    if (action === open) {
+      await vscode.window.showTextDocument(vscode.Uri.file(report));
+    }
+  };
+
+  /**
    * Продолжает мониторинг, когда приложение запускается заново: `dotnet watch` перезапускает его
    * после сбоя и при Hot Reload, Aspire AppHost — при изменении кода. Новый процесс получает другой
    * PID, поэтому ищем его по той же командной строке и подключаемся снова.
@@ -241,7 +263,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Контекстные ключи управляют видимостью команд в заголовках панелей.
     // Перезапуск приложения приходит как обычный выход процесса: решаем, подключаться ли к новому.
-    controller.onDidTargetExit(info => void followRestartedProcess(info)),
+    controller.onDidTargetExit(info => {
+      void offerCrashReport(info);
+      void followRestartedProcess(info);
+    }),
 
     controller.onDidChangeRunning(running => {
       void vscode.commands.executeCommand('setContext', 'monitor-dotnet.isMonitoring', running);

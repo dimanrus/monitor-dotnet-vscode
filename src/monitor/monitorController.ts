@@ -28,6 +28,8 @@ export interface TargetExitInfo {
   exitCode: number | null;
   /** Причина остановки из сообщения моста: `targetExited` означает выход самого приложения. */
   reason: string | null;
+  /** Файл отчёта о сбое, если среда выполнения его оставила. */
+  crashReportPath: string | null;
   /** Когда замечено завершение, миллисекунды UNIX. */
   exitedAtMs: number;
 }
@@ -42,7 +44,7 @@ export class MonitorController implements vscode.Disposable {
   private currentPid: number | undefined;
   // Последнее состояние остановки от моста: код выхода целевого процесса нужен,
   // чтобы отличить штатное завершение от сбоя и понять, стоит ли ждать перезапуска.
-  private lastStop: { reason: string | null; exitCode: number | null } | undefined;
+  private lastStop: { reason: string | null; exitCode: number | null; crashReportPath: string | null } | undefined;
   // Счётчик остановок: фоновые операции (ожидание перезапуска приложения) понимают по нему,
   // что мониторинг остановили намеренно и продолжать его не нужно.
   private stopCount = 0;
@@ -238,6 +240,9 @@ export class MonitorController implements vscode.Disposable {
           this.lastStop = {
             reason: message.reason ?? null,
             exitCode: typeof message.exitCode === 'number' ? message.exitCode : null,
+            crashReportPath: typeof message.crashReportPath === 'string' && message.crashReportPath.length > 0
+              ? message.crashReportPath
+              : null,
           };
         }
 
@@ -293,6 +298,7 @@ export class MonitorController implements vscode.Disposable {
         pid,
         exitCode,
         reason: stop?.reason ?? null,
+        crashReportPath: stop?.crashReportPath ?? null,
         exitedAtMs: Date.now(),
       });
     }

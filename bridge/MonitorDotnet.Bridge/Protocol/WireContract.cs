@@ -141,8 +141,16 @@ internal sealed record EnvironmentMessage(
 /// <c>ExitCode</c> заполняется только для остановки из-за завершения целевого процесса
 /// и только там, где система его отдаёт (Windows): по нему расширение отличает штатный выход
 /// от сбоя и решает, ждать ли перезапуска.
+/// <c>CrashReportPath</c> — файл отчёта о сбое рядом с дампом (Linux и macOS): расширение
+/// предлагает его открыть, чтобы сразу увидеть управляемые стеки упавшего процесса.
 /// </summary>
-internal sealed record StatusMessage(string Type, string State, string? Reason, string? Message, int? ExitCode);
+internal sealed record StatusMessage(
+    string Type,
+    string State,
+    string? Reason,
+    string? Message,
+    int? ExitCode,
+    string? CrashReportPath);
 
 /// <summary>
 /// Ошибка моста.

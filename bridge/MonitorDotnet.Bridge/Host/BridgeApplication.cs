@@ -41,7 +41,7 @@ internal static class BridgeApplication
             return 3;
         }
 
-        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateConnecting, Reason: null, Message: null, ExitCode: null));
+        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateConnecting, Reason: null, Message: null, ExitCode: null, CrashReportPath: null));
 
         using var collector = new EventPipeCollector(options, buffer, log, clock);
         try
@@ -58,7 +58,12 @@ internal static class BridgeApplication
             return 4;
         }
 
-        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateRunning, Reason: null, Message: null, ExitCode: null));
+        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateRunning, Reason: null, Message: null, ExitCode: null, CrashReportPath: null));
+
+        // Окружение читаем один раз: оно не меняется, а те же переменные нужны, чтобы заранее
+        // понять, куда среда выполнения положит отчёт о сбое (DOTNET_EnableCrashReport).
+        (IReadOnlyList<KeyValuePair<string, string>> variables, string? warning) = ProcessEnvironment.Read(options.Pid);
+        string? crashReportPath = CrashReportPath.Predict(options.Pid, TryGetProcessName(process), variables);
 
         using var cancellation = new CancellationTokenSource();
 
@@ -84,7 +89,7 @@ internal static class BridgeApplication
             // В средах без консоли событие недоступно — игнорируем.
         }
 
-        await RunSamplingLoopAsync(options, process, buffer, writer, collector, clock, cancellation.Token);
+        await RunSamplingLoopAsync(options, process, buffer, writer, collector, clock, variables, warning, cancellation.Token);
 
         bool targetExited = process.HasExited;
         writer.Write(new StatusMessage(
@@ -92,7 +97,8 @@ internal static class BridgeApplication
             WireContract.StateStopped,
             targetExited ? WireContract.ReasonTargetExited : null,
             targetExited ? "The target process has exited." : null,
-            targetExited ? TryGetExitCode(process) : null));
+            targetExited ? TryGetExitCode(process) : null,
+            targetExited ? FindCrashReport(crashReportPath) : null));
 
         return 0;
     }
@@ -105,6 +111,8 @@ internal static class BridgeApplication
         WireWriter writer,
         EventPipeCollector collector,
         SessionClock clock,
+        IReadOnlyList<KeyValuePair<string, string>> variables,
+        string? environmentWarning,
         CancellationToken token)
     {
         var sampler = new ProcessStatsSampler(options.Pid, new BridgeLog(options.LogLevel, writer));
@@ -134,7 +142,7 @@ internal static class BridgeApplication
                     writer.Write(BuildHello(options, process, collector, clock));
                     if (options.CollectEnvironment)
                     {
-                        writer.Write(BuildEnvironment(options, collector));
+                        writer.Write(BuildEnvironment(collector, variables, environmentWarning));
                     }
 
                     headerSent = true;
@@ -178,15 +186,17 @@ internal static class BridgeApplication
     }
 
     /// <summary>Сообщение <c>environment</c>: переменные окружения и системные свойства.</summary>
-    private static EnvironmentMessage BuildEnvironment(BridgeOptions options, EventPipeCollector collector)
+    private static EnvironmentMessage BuildEnvironment(
+        EventPipeCollector collector,
+        IReadOnlyList<KeyValuePair<string, string>> variables,
+        string? environmentWarning)
     {
-        (IReadOnlyList<KeyValuePair<string, string>> variables, string? warning) = ProcessEnvironment.Read(options.Pid);
         var properties = new List<KeyValuePair<string, string>>();
         var warnings = new List<string>();
 
-        if (warning is not null)
+        if (environmentWarning is not null)
         {
-            warnings.Add(warning);
+            warnings.Add(environmentWarning);
         }
 
         if (collector.TargetInfo.RuntimeVersion is { } runtime)
@@ -219,6 +229,38 @@ internal static class BridgeApplication
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Ищет файл отчёта о сбое, который среда выполнения пишет рядом с дампом.
+    /// Отчёт создаёт отдельный процесс сбора дампа, поэтому файл может появиться
+    /// через мгновение после выхода приложения — недолго ждём.
+    /// </summary>
+    private static string? FindCrashReport(string? path)
+    {
+        if (path is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                if (File.Exists(path))
+                {
+                    return path;
+                }
+
+                Thread.Sleep(100);
+            }
+        }
+        catch (Exception)
+        {
+            // Отчёт — дополнительная возможность: без него мониторинг работает как раньше.
+        }
+
+        return null;
     }
 
     /// <summary>

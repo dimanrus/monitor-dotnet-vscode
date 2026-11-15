@@ -106,6 +106,8 @@ public sealed class BridgeIntegrationTests
             Assert.False(stopped.TryGetProperty("exitCode", out _));
         }
 
+        // Отчёт о сбое не включён в окружении образца — файла нет, и поле не приходит.
+        Assert.False(stopped.TryGetProperty("crashReportPath", out _));
         _ = error;
     }
 

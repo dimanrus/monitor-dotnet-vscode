@@ -121,6 +121,11 @@ export interface BridgeStatusMessage {
    * а не штатное завершение.
    */
   exitCode?: number | null;
+  /**
+   * Файл отчёта о сбое, который среда выполнения оставила рядом с дампом
+   * (`DOTNET_EnableCrashReport`, Linux и macOS): расширение предлагает его открыть.
+   */
+  crashReportPath?: string | null;
 }
 
 /** Ошибка моста. `code` переводится расширением, `message` — подробность или запасной текст. */
