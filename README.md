@@ -4,7 +4,7 @@
 
 <h1 align="center">🔍 Monitor Dotnet</h1>
 
-![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-blue?style=flat-square)
+![Version 1.3.0](https://img.shields.io/badge/version-1.3.0-blue?style=flat-square)
 ![.NET net11.0](https://img.shields.io/badge/.NET-net11.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![License MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
@@ -381,8 +381,8 @@ Requirements: **.NET SDK 11**, **Node.js 20+**, **VS Code 1.100+**.
 npm install
 npm run bridge:build   # publish the .NET bridge to media/bridge and dist/bridge
 npm run build          # bundle the extension and the charts panel
-npm run package        # create monitor-dotnet-1.2.0.vsix
-code --install-extension monitor-dotnet-1.2.0.vsix
+npm run package        # create monitor-dotnet-1.3.0.vsix
+code --install-extension monitor-dotnet-1.3.0.vsix
 ```
 
 Useful commands:
