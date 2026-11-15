@@ -40,6 +40,7 @@
   "config.enableMonitoring.enum1": "Запускать мониторинг автоматически только при отладке.",
   "config.enableMonitoring.enum2": "Не запускать мониторинг автоматически (ручной запуск и подключение к процессу остаются доступны).",
   "config.enableMonitoring.markdownDescription": "Когда запускать мониторинг автоматически: **при отладке или запуске**, **только при отладке** или **никогда**.",
+  "config.followRestarts.description": "Продолжать мониторинг, когда приложение запускается заново: перезапуск `dotnet watch` после сбоя или перезапуск из-за Hot Reload.",
   "config.metricProviders.markdownDescription": "Метры (`System.Diagnostics.Metrics`). `*` — все метры, либо `MyMeter` / `MyMeter\\MyInstrument`.",
   "config.processNameFilter.description": "Дополнительный фильтр для поиска процесса отладки (подстрока командной строки).",
   "config.profilingOutputDirectory.description": "Каталог для профилей, дампов и снимков. Пусто — папка .monitor-dotnet в проекте.",

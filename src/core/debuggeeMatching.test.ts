@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { selectDebuggeePid, type ProcessCandidate } from './debuggeeMatching.ts';
+import { isRunner, selectDebuggeePid, type ProcessCandidate } from './debuggeeMatching.ts';
 
 function candidate(pid: number, commandLine: string, startTimeMs = 0, name = 'dotnet'): ProcessCandidate {
   return { pid, commandLine, startTimeMs, name };
 }
 
 const sessionStartMs = 1_000_000;
-const program = '/repo/samples/SampleApp/bin/Debug/net10.0/SampleApp.dll';
+const program = '/repo/samples/SampleApp/bin/Debug/net11.0/SampleApp.dll';
 
 test('явный processId из конфигурации attach имеет приоритет', () => {
   const pid = selectDebuggeePid([candidate(5, '/usr/bin/dotnet app.dll', 900_000)], {
@@ -286,4 +286,41 @@ test('файл проекта F# (.fsproj) в `program` не мешает най
   });
 
   assert.equal(pid, 151);
+});
+
+// ─── dotnet watch ───
+// В .NET 11 `dotnet watch` интегрирован с Aspire AppHost, получил восстановление после сбоя
+// и выбор устройства для мобильных проектов (`dotnet watch --device <id>`). Подкоманда `run`
+// стала необязательной, поэтому обёрткой считается любая форма команды: сам `dotnet watch`
+// приложение не выполняет, а запускает — отладчик подключается к его дочернему процессу.
+
+test('обёрткой считается любая форма dotnet watch, а не только `watch run`', () => {
+  assert.equal(isRunner(candidate(160, 'dotnet watch run --project /repo/App/App.csproj')), true);
+  assert.equal(isRunner(candidate(161, 'dotnet watch --device emulator-5554')), true);
+  assert.equal(isRunner(candidate(162, 'dotnet watch')), true);
+  // На Windows путь к хосту обычно в кавычках: аргументы всё равно должны разбираться верно.
+  assert.equal(isRunner({
+    ...candidate(163, '"C:\\Program Files\\dotnet\\dotnet.exe" watch run'),
+    executablePath: 'C:\\Program Files\\dotnet\\dotnet.exe',
+  }), true);
+});
+
+test('само приложение и посторонние команды обёрткой не считаются', () => {
+  assert.equal(isRunner(candidate(170, `/usr/lib/dotnet/dotnet ${program}`)), false);
+  assert.equal(isRunner(candidate(171, 'dotnet exec /repo/bin/Debug/net11.0/App.dll')), false);
+  assert.equal(isRunner(candidate(172, '/repo/samples/SampleApp/bin/Debug/net11.0/SampleApp', 0, 'SampleApp')), false);
+});
+
+test('обёртка dotnet watch с выбором устройства не выбирается вместо приложения', () => {
+  const pid = selectDebuggeePid([
+    candidate(180, `dotnet watch --device emulator-5554 --project ${fsharpRoot}/FSharpApp.csproj`, sessionStartMs + 1_000),
+    candidate(181, `/usr/lib/dotnet/dotnet ${fsharpRoot}/bin/Debug/net11.0/FSharpApp.dll`, sessionStartMs + 3_000),
+  ], {
+    program: `${fsharpRoot}/bin/Debug/net11.0/FSharpApp.dll`,
+    cwd: fsharpRoot,
+    sessionStartMs,
+    excludePids: [],
+  });
+
+  assert.equal(pid, 181);
 });

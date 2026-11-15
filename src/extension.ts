@@ -8,13 +8,14 @@
 
 import * as vscode from 'vscode';
 import { selectDebuggeePid } from './core/debuggeeMatching.ts';
+import { findRestartedTarget, type RestartSearch } from './core/restartFollow.ts';
 import { translate } from './core/locale.ts';
 import { MonitorState } from './core/monitorState.ts';
 import { Logger } from './logger.ts';
 import { buildTargets, targetCount, type TargetGroups } from './core/targetChoices.ts';
 import { listDotnetProcesses } from './monitor/dotnetProcesses.ts';
 import { DebugSessionRegistry, snapshotFromSession, type DebugSessionSnapshot } from './monitor/debugSessions.ts';
-import { MonitorController } from './monitor/monitorController.ts';
+import { MonitorController, type TargetExitInfo } from './monitor/monitorController.ts';
 import { ProfilingTools } from './monitor/profilingTools.ts';
 import { activateLocalization } from './localization.ts';
 import { getSettings, onDidChangeSettings, openSettings, type MonitorSettings } from './settings.ts';
@@ -47,6 +48,23 @@ const DEBUGGEE_SEARCH_INTERVAL_MS = 500;
  * поэтому спешить с подключением нельзя.
  */
 const DEBUGGEE_UNCERTAIN_START_DELAY_MS = 3_000;
+
+/**
+ * Сколько ждать перезапуска после выхода процесса, когда приложение подключено вручную.
+ * `dotnet watch` поднимает его заново почти сразу, поэтому долгое ожидание здесь не нужно.
+ */
+const RESTART_FOLLOW_TIMEOUT_MS = 20_000;
+
+/**
+ * Сколько ждать перезапуска, пока жива сессия отладки.
+ * После сбоя `dotnet watch` поднимает приложение не сразу, а при следующем изменении файла,
+ * поэтому окно ожидания заметно больше.
+ */
+const RESTART_SESSION_TIMEOUT_MS = 5 * 60_000;
+
+/** Интервалы повторных попыток поиска перезапущенного приложения: редкие опросы после первой минуты. */
+const RESTART_FOLLOW_INTERVAL_MS = 500;
+const RESTART_FOLLOW_INTERVAL_MAX_MS = 2_000;
 
 export function activate(context: vscode.ExtensionContext): void {
   // Язык интерфейса и перевод строк подключаем до создания любых сообщений.
@@ -143,6 +161,62 @@ export function activate(context: vscode.ExtensionContext): void {
   // Сессия, для которой сейчас идёт мониторинг: нужна, чтобы остановиться при её завершении.
   let monitoredSessionId: string | undefined;
 
+  /**
+   * Продолжает мониторинг, когда приложение запускается заново: `dotnet watch` перезапускает его
+   * после сбоя и при Hot Reload, Aspire AppHost — при изменении кода. Новый процесс получает другой
+   * PID, поэтому ищем его по той же командной строке и подключаемся снова.
+   */
+  const followRestartedProcess = async (info: TargetExitInfo): Promise<void> => {
+    if (!settings.followRestarts) {
+      return;
+    }
+
+    const search: RestartSearch = {
+      pid: info.pid,
+      commandLine: state.hello?.commandLine ?? '',
+      exitedAtMs: info.exitedAtMs,
+    };
+    if (search.commandLine.trim().length === 0) {
+      logger.info(translate('The command line of process {0} is unknown; a restart is not followed.', info.pid));
+      return;
+    }
+
+    if (info.exitCode !== null && info.exitCode !== 0) {
+      // Ненулевой код выхода — приложение упало; `dotnet watch` поднимет его снова при изменении файла.
+      logger.warn(translate('Process {0} exited with code {1} — it may have crashed.', info.pid, info.exitCode));
+    }
+
+    const sessionId = monitoredSessionId;
+    const stopVersion = controller.stopVersion;
+    const pid = await waitForRestartedProcess(
+      search,
+      // Пока сессия отладки жива, ждём дольше: после сбоя `dotnet watch` ждёт изменения файла.
+      sessionId === undefined ? RESTART_FOLLOW_TIMEOUT_MS : RESTART_SESSION_TIMEOUT_MS,
+      () => controller.stopVersion !== stopVersion ||
+        (sessionId !== undefined && monitoredSessionId !== sessionId),
+      logger,
+    );
+    if (pid === undefined) {
+      return;
+    }
+
+    const label = sessionId === undefined ? undefined : sessions.get(sessionId)?.name;
+    if (!await controller.start(pid, label)) {
+      return;
+    }
+
+    if (sessionId !== undefined) {
+      sessions.setPid(sessionId, pid);
+    }
+
+    void performancePanel?.refreshTargets();
+    logger.info(translate('Monitoring continued on the restarted process {0}.', pid));
+    void vscode.window.setStatusBarMessage(
+      translate('Monitor Dotnet: monitoring continued after the restart (PID {0}).', pid),
+      5000,
+    );
+  };
+
   context.subscriptions.push(
     logger,
     performancePanel,
@@ -166,6 +240,9 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerTreeDataProvider('monitor-dotnet.environment', environmentProvider),
 
     // Контекстные ключи управляют видимостью команд в заголовках панелей.
+    // Перезапуск приложения приходит как обычный выход процесса: решаем, подключаться ли к новому.
+    controller.onDidTargetExit(info => void followRestartedProcess(info)),
+
     controller.onDidChangeRunning(running => {
       void vscode.commands.executeCommand('setContext', 'monitor-dotnet.isMonitoring', running);
       if (!running) {
@@ -511,6 +588,37 @@ async function resolveSessionPidInBackground(
 
   sessions.setPid(session.id, pid);
   onSessionsChanged();
+}
+
+/**
+ * Ждёт, пока приложение запустится заново с той же командной строкой.
+ * Возвращает PID нового экземпляра или `undefined`, если перезапуска не случилось
+ * либо ожидание отменили (сессия завершилась, мониторинг остановили).
+ */
+async function waitForRestartedProcess(
+  search: RestartSearch,
+  timeoutMs: number,
+  isCancelled: () => boolean,
+  logger: Logger,
+): Promise<number | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  let interval = RESTART_FOLLOW_INTERVAL_MS;
+  while (Date.now() < deadline) {
+    if (isCancelled()) {
+      return undefined;
+    }
+
+    const pid = findRestartedTarget(await listDotnetProcesses(), search);
+    if (pid !== undefined) {
+      return pid;
+    }
+
+    await delay(interval);
+    interval = Math.min(interval * 2, RESTART_FOLLOW_INTERVAL_MAX_MS);
+  }
+
+  logger.info(translate('The application did not restart; monitoring is stopped.'));
+  return undefined;
 }
 
 /**

@@ -136,8 +136,13 @@ internal sealed record EnvironmentMessage(
     IReadOnlyList<KeyValuePair<string, string>> Properties,
     IReadOnlyList<string> Warnings);
 
-/// <summary>Состояние монитора. Код причины переводит расширение, текст — запасной вариант.</summary>
-internal sealed record StatusMessage(string Type, string State, string? Reason, string? Message);
+/// <summary>
+/// Состояние монитора. Код причины переводит расширение, текст — запасной вариант.
+/// <c>ExitCode</c> заполняется только для остановки из-за завершения целевого процесса
+/// и только там, где система его отдаёт (Windows): по нему расширение отличает штатный выход
+/// от сбоя и решает, ждать ли перезапуска.
+/// </summary>
+internal sealed record StatusMessage(string Type, string State, string? Reason, string? Message, int? ExitCode);
 
 /// <summary>
 /// Ошибка моста.

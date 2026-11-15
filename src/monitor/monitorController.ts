@@ -20,10 +20,32 @@ import type { MonitorSettings } from '../settings.ts';
 /** Слушатель изменения признака «мониторинг запущен». */
 export type RunningStateListener = (running: boolean) => void;
 
+/** Сведения о завершении мониторимого процесса: по ним решается, ждать ли перезапуска. */
+export interface TargetExitInfo {
+  /** PID завершившегося процесса. */
+  pid: number;
+  /** Код завершения процесса, если мост успел его сообщить. */
+  exitCode: number | null;
+  /** Причина остановки из сообщения моста: `targetExited` означает выход самого приложения. */
+  reason: string | null;
+  /** Когда замечено завершение, миллисекунды UNIX. */
+  exitedAtMs: number;
+}
+
+/** Слушатель завершения мониторимого процесса. */
+export type TargetExitListener = (info: TargetExitInfo) => void;
+
 export class MonitorController implements vscode.Disposable {
   private bridge: BridgeProcess | undefined;
   private readonly listeners = new Set<RunningStateListener>();
+  private readonly exitListeners = new Set<TargetExitListener>();
   private currentPid: number | undefined;
+  // Последнее состояние остановки от моста: код выхода целевого процесса нужен,
+  // чтобы отличить штатное завершение от сбоя и понять, стоит ли ждать перезапуска.
+  private lastStop: { reason: string | null; exitCode: number | null } | undefined;
+  // Счётчик остановок: фоновые операции (ожидание перезапуска приложения) понимают по нему,
+  // что мониторинг остановили намеренно и продолжать его не нужно.
+  private stopCount = 0;
   // Признак того, что мост останавливаем мы сами: обработчик выхода учитывает это,
   // чтобы не сообщать пользователю о «неожиданном» завершении.
   private stoppingIntentionally = false;
@@ -50,6 +72,11 @@ export class MonitorController implements vscode.Disposable {
     return this.currentPid;
   }
 
+  /** Сколько раз мониторинг останавливали: растущее значение отменяет фоновые ожидания. */
+  get stopVersion(): number {
+    return this.stopCount;
+  }
+
   /** Признак активного мониторинга. */
   get isRunning(): boolean {
     return this.bridge?.isRunning === true;
@@ -59,6 +86,16 @@ export class MonitorController implements vscode.Disposable {
   onDidChangeRunning(listener: RunningStateListener): vscode.Disposable {
     this.listeners.add(listener);
     return { dispose: () => this.listeners.delete(listener) };
+  }
+
+  /**
+   * Подписка на завершение мониторимого процесса.
+   * Приложение может запуститься снова (перезапуск `dotnet watch`, Hot Reload, Aspire AppHost),
+   * поэтому подписчик успевает подключиться к новому экземпляру до окончательной остановки.
+   */
+  onDidTargetExit(listener: TargetExitListener): vscode.Disposable {
+    this.exitListeners.add(listener);
+    return { dispose: () => this.exitListeners.delete(listener) };
   }
 
   /** Запускает мониторинг процесса. Повторный вызов перезапускает мост на новом процессе. */
@@ -90,6 +127,7 @@ export class MonitorController implements vscode.Disposable {
     }
 
     this.logger.info(translate('Bridge found ({0}): {1}', location.source, location.bridgePath));
+    this.lastStop = undefined;
     this.state.reset();
 
     const bridge = new BridgeProcess(
@@ -134,6 +172,7 @@ export class MonitorController implements vscode.Disposable {
 
   /** Останавливает мониторинг. Данные остаются в панелях до очистки. */
   async stop(message?: string): Promise<void> {
+    this.stopCount++;
     const bridge = this.bridge;
     if (bridge === undefined) {
       return;
@@ -195,6 +234,13 @@ export class MonitorController implements vscode.Disposable {
         return;
 
       case 'status':
+        if (message.state === 'stopped') {
+          this.lastStop = {
+            reason: message.reason ?? null,
+            exitCode: typeof message.exitCode === 'number' ? message.exitCode : null,
+          };
+        }
+
         this.state.applyStatus({ ...message, message: localizeStatusHint(message) ?? null });
         return;
 
@@ -217,6 +263,8 @@ export class MonitorController implements vscode.Disposable {
 
   private handleExit(code: number | null, signal: NodeJS.Signals | null, pid: number): void {
     const intentional = this.stoppingIntentionally;
+    const stop = this.lastStop;
+    this.lastStop = undefined;
     this.logger.info(translate('The bridge exited (code {0}, signal {1}).', code ?? 'n/a', signal ?? 'none'));
     this.bridge = undefined;
     this.currentPid = undefined;
@@ -227,17 +275,38 @@ export class MonitorController implements vscode.Disposable {
       return;
     }
 
-    if (code === 0) {
+    const targetExited = stop?.reason === 'targetExited';
+    const exitCode = targetExited ? stop?.exitCode ?? null : null;
+
+    if (targetExited && exitCode !== null && exitCode !== 0) {
+      // Ненулевой код выхода — приложение упало, а не завершилось штатно.
+      this.state.markStopped(translate('Process {0} exited with code {1}.', pid, exitCode));
+    } else if (targetExited || code === 0) {
       this.state.markStopped(translate('Process {0} finished.', pid));
-      return;
+    } else {
+      this.state.markStopped(translate('Monitoring of process {0} stopped (code {1}).', pid, code ?? 'n/a'));
     }
 
-    this.state.markStopped(translate('Monitoring of process {0} stopped (code {1}).', pid, code ?? 'n/a'));
+    // Сообщаем после того, как состояние обновилось: подписчик может сразу начать новый сеанс.
+    if (targetExited) {
+      this.notifyTargetExit({
+        pid,
+        exitCode,
+        reason: stop?.reason ?? null,
+        exitedAtMs: Date.now(),
+      });
+    }
   }
 
   private notifyRunning(running: boolean): void {
     for (const listener of this.listeners) {
       listener(running);
+    }
+  }
+
+  private notifyTargetExit(info: TargetExitInfo): void {
+    for (const listener of this.exitListeners) {
+      listener(info);
     }
   }
 }

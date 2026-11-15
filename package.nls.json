@@ -40,6 +40,7 @@
   "config.enableMonitoring.enum1": "Start monitoring automatically only when debugging.",
   "config.enableMonitoring.enum2": "Do not start monitoring automatically (manual start and attach remain available).",
   "config.enableMonitoring.markdownDescription": "When to start monitoring automatically: **on debug or run**, **on debug only**, or **never**.",
+  "config.followRestarts.description": "Keep monitoring when the application starts again: a `dotnet watch` restart after a crash or a Hot Reload relaunch.",
   "config.metricProviders.markdownDescription": "Meters (`System.Diagnostics.Metrics`). `*` means all meters, or use `MyMeter` / `MyMeter\\MyInstrument`.",
   "config.processNameFilter.description": "Extra filter for finding the debuggee process (a substring of the command line).",
   "config.profilingOutputDirectory.description": "Directory for profiles, dumps and snapshots. Empty means the .monitor-dotnet folder in the project.",

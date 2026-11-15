@@ -69,6 +69,47 @@ public sealed class BridgeIntegrationTests
     }
 
     [Fact]
+    public async Task Bridge_ReportsTargetExitCode_WhenTargetProcessExits()
+    {
+        using var harness = new BridgeTestHarness();
+        int pid = await harness.StartSampleAppAsync();
+
+        // Мост живёт дольше приложения: по выходу цели он сообщает причину остановки и код завершения.
+        Task<(int ExitCode, IReadOnlyList<JsonElement> Messages, string StandardError)> run =
+            harness.RunBridgeAsync(pid, observationSeconds: 30);
+
+        await Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+        using (System.Diagnostics.Process target = System.Diagnostics.Process.GetProcessById(pid))
+        {
+            target.Kill();
+        }
+
+        (int exitCode, IReadOnlyList<JsonElement> messages, string error) = await run;
+
+        Assert.Equal(0, exitCode);
+        JsonElement stopped = messages.Last(message =>
+            message.GetProperty("type").GetString() == "status" &&
+            message.GetProperty("state").GetString() == "stopped");
+        Assert.Equal("targetExited", stopped.GetProperty("reason").GetString());
+
+        // Код выхода нужен расширению, чтобы отличить сбой от штатного завершения
+        // и решить, ждать ли перезапуска (`dotnet watch` с восстановлением после сбоя).
+        // На Unix система не отдаёт код выхода для процесса, запущенного не этим объектом,
+        // поэтому поле приходит только на Windows.
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.True(stopped.TryGetProperty("exitCode", out JsonElement exitCodeElement), $"В статусе нет кода выхода. Сообщения: {string.Join(" | ", messages)}");
+            Assert.NotEqual(0, exitCodeElement.GetInt32());
+        }
+        else
+        {
+            Assert.False(stopped.TryGetProperty("exitCode", out _));
+        }
+
+        _ = error;
+    }
+
+    [Fact]
     public async Task Bridge_ReportsFatalError_WhenProcessDoesNotExist()
     {
         using var harness = new BridgeTestHarness();

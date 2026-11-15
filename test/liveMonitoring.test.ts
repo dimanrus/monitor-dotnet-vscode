@@ -501,3 +501,72 @@ test(
     }
   },
 );
+
+/**
+ * Перезапуск приложения: `dotnet watch` поднимает процесс заново (Hot Reload, восстановление
+ * после сбоя), и у нового экземпляра другой PID. Расширение обязано найти его по той же
+ * командной строке и продолжить мониторинг, не дожидаясь ручного выбора процесса.
+ */
+test(
+  'перезапуск приложения: мониторинг продолжается на новом процессе',
+  { skip: !enabled, timeout: 5 * 60_000 },
+  async () => {
+    buildSample();
+    const bundlePath = await buildExtension();
+    const first = await startSample(false);
+
+    let extension: LoadedExtension | undefined;
+    let restarted: { child: ChildProcess; pid: number } | undefined;
+
+    try {
+      extension = loadExtension(bundlePath, {
+        language: 'en',
+        quickPickSelector: items => items.find(item => item.description === `PID ${first.pid}`) ?? items[0],
+      });
+
+      extension.activate({
+        extensionPath: projectRoot,
+        extensionUri: { fsPath: projectRoot },
+        subscriptions: [] as unknown[],
+      });
+
+      const provider = extension.registry.webviewViews.get('monitor-dotnet.performance') as
+        | { resolveWebviewView(view: StubWebviewView): void }
+        | undefined;
+      assert.ok(provider !== undefined, 'панель графиков не зарегистрирована');
+
+      const view = new StubWebviewView();
+      provider.resolveWebviewView(view);
+      view.webview.receive({ type: 'ready' });
+
+      await extension.registry.commandHandlers.get('monitor-dotnet.startMonitoring')?.();
+      await waitFor(
+        'первые точки на графиках',
+        () => dataFrom(view.webview.messages).points.length >= 2,
+        COLLECTION_TIMEOUT_MS,
+      );
+
+      // Приложение завершается — так выглядит перезапуск `dotnet watch` — и сразу запускается снова
+      // с той же командной строкой, но с другим PID.
+      first.child.kill('SIGTERM');
+      restarted = await startSample(false);
+
+      await waitFor(
+        'подключение к перезапущенному процессу',
+        () => extension!.registry.logLines.some(line => line.includes(`--pid ${restarted!.pid}`)),
+        COLLECTION_TIMEOUT_MS,
+      );
+
+      // Графики снова наполняются: это уже данные нового экземпляра приложения.
+      await waitFor(
+        'точки после перезапуска',
+        () => dataFrom(view.webview.messages).points.length >= 2,
+        COLLECTION_TIMEOUT_MS,
+      );
+    } finally {
+      extension?.deactivate();
+      first.child.kill('SIGTERM');
+      restarted?.child.kill('SIGTERM');
+    }
+  },
+);

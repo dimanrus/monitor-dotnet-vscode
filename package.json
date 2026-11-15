@@ -488,6 +488,11 @@
           "default": true,
           "description": "%config.autoReveal.description%"
         },
+        "monitor-dotnet.followRestarts": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.followRestarts.description%"
+        },
         "monitor-dotnet.refreshIntervalSeconds": {
           "type": "number",
           "default": 1,

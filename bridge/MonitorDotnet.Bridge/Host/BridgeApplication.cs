@@ -41,7 +41,7 @@ internal static class BridgeApplication
             return 3;
         }
 
-        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateConnecting, Reason: null, Message: null));
+        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateConnecting, Reason: null, Message: null, ExitCode: null));
 
         using var collector = new EventPipeCollector(options, buffer, log, clock);
         try
@@ -58,7 +58,7 @@ internal static class BridgeApplication
             return 4;
         }
 
-        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateRunning, Reason: null, Message: null));
+        writer.Write(new StatusMessage(WireContract.TypeStatus, WireContract.StateRunning, Reason: null, Message: null, ExitCode: null));
 
         using var cancellation = new CancellationTokenSource();
 
@@ -86,11 +86,13 @@ internal static class BridgeApplication
 
         await RunSamplingLoopAsync(options, process, buffer, writer, collector, clock, cancellation.Token);
 
+        bool targetExited = process.HasExited;
         writer.Write(new StatusMessage(
             WireContract.TypeStatus,
             WireContract.StateStopped,
-            process.HasExited ? WireContract.ReasonTargetExited : null,
-            process.HasExited ? "The target process has exited." : null));
+            targetExited ? WireContract.ReasonTargetExited : null,
+            targetExited ? "The target process has exited." : null,
+            targetExited ? TryGetExitCode(process) : null));
 
         return 0;
     }
@@ -214,6 +216,23 @@ internal static class BridgeApplication
             return Process.GetProcessById(pid);
         }
         catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Код завершения целевого процесса: ненулевой означает сбой приложения.
+    /// На Unix .NET не сообщает код выхода для процесса, запущенного не этим объектом,
+    /// поэтому там значение остаётся неизвестным, а расширение обходится без него.
+    /// </summary>
+    private static int? TryGetExitCode(Process process)
+    {
+        try
+        {
+            return process.ExitCode;
+        }
+        catch (Exception)
         {
             return null;
         }

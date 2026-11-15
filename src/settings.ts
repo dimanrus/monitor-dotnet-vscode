@@ -25,6 +25,8 @@ export type DumpType = 'Full' | 'Heap' | 'Mini' | 'Triage';
 export interface MonitorSettings {
   enableMonitoring: EnableMonitoringMode;
   autoReveal: boolean;
+  /** Продолжать мониторинг, когда приложение запускается заново (`dotnet watch`, Hot Reload). */
+  followRestarts: boolean;
   refreshIntervalSeconds: number;
   chartWindowSeconds: number;
   counterProviders: string[];
@@ -51,6 +53,7 @@ export function getSettings(): MonitorSettings {
   return {
     enableMonitoring: configuration.get<EnableMonitoringMode>('enableMonitoring', 'onDebugOrRun'),
     autoReveal: configuration.get<boolean>('autoReveal', true),
+    followRestarts: configuration.get<boolean>('followRestarts', true),
     refreshIntervalSeconds: clamp(configuration.get<number>('refreshIntervalSeconds', 1), 0.2, 60),
     chartWindowSeconds: clamp(configuration.get<number>('chartWindowSeconds', 120), 10, 3600),
     counterProviders: sanitizeList(configuration.get<string[]>('counterProviders', [])),

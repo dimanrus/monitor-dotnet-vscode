@@ -249,22 +249,35 @@ function isDotnetHost(candidate: ProcessCandidate): boolean {
 }
 
 /**
- * Процесс лишь запускает приложение: `dotnet run --project …` или `dotnet watch run`.
+ * Процесс лишь запускает приложение: `dotnet run --project …` или `dotnet watch`.
  * Проверяем именно подкоманду хоста, а не слово в пути: проект с именем `Run` не должен считаться обёрткой.
+ *
+ * У `dotnet watch` подкоманда `run` необязательна, а дальше могут идти его собственные параметры
+ * (`dotnet watch --device <id>` для мобильных проектов, `dotnet watch run --project …`), поэтому
+ * хватает первого аргумента: любая форма `dotnet watch` приложение не выполняет, а запускает.
  */
-function isRunner(candidate: ProcessCandidate): boolean {
+export function isRunner(candidate: ProcessCandidate): boolean {
   if (!isDotnetHost(candidate)) {
     return false;
   }
 
-  const argumentsList = candidate.commandLine
-    .trim()
-    .split(/\s+/)
+  // Первый аргумент — сам хост: у путей с пробелами он в кавычках, поэтому делим строку с их учётом.
+  const argumentsList = splitArguments(candidate.commandLine)
     .slice(1)
-    .map(token => token.replace(/^"|"$/g, '').toLowerCase())
+    .map(token => token.toLowerCase())
     .filter(token => !token.startsWith('-'));
 
-  return argumentsList[0] === 'run' || (argumentsList[0] === 'watch' && argumentsList[1] === 'run');
+  return argumentsList[0] === 'run' || argumentsList[0] === 'watch';
+}
+
+/** Разбивает командную строку на аргументы: часть в кавычках может содержать пробелы. */
+function splitArguments(commandLine: string): string[] {
+  const tokens: string[] = [];
+  for (const match of commandLine.matchAll(/"([^"]*)"|(\S+)/g)) {
+    tokens.push(match[1] ?? match[2] ?? '');
+  }
+
+  return tokens;
 }
 
 /** Самый поздний по времени запуска процесс: цель отладки стартует последней. */
