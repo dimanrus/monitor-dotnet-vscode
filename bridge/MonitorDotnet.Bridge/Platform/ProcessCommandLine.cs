@@ -21,7 +21,7 @@ internal static class ProcessCommandLine
 
             if (OperatingSystem.IsMacOS())
             {
-                return ReadProcessOutput("ps", new[] { "-p", pid.ToString(), "-ww", "-o", "command=" });
+                return ReadProcessOutput("ps", ["-p", pid.ToString(), "-ww", "-o", "command="]);
             }
 
             if (OperatingSystem.IsWindows())
@@ -49,27 +49,14 @@ internal static class ProcessCommandLine
         return System.Text.Encoding.UTF8.GetString(bytes).Replace('\0', ' ').Trim();
     }
 
-    private static string ReadProcessOutput(string fileName, string[] arguments)
+    /// <summary>
+    /// Запускает служебную команду и возвращает её вывод.
+    /// <c>Process.RunAndCaptureText</c> читает стандартный вывод и ошибки сразу — ручное чтение
+    /// только stdout могло зависнуть на заполненном буфере, — а таймаут не даёт команде задержать мониторинг.
+    /// </summary>
+    private static string ReadProcessOutput(string fileName, IList<string> arguments)
     {
-        var startInfo = new ProcessStartInfo(fileName)
-        {
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (string argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            return string.Empty;
-        }
-
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit(2000);
-        return output.Trim();
+        ProcessTextOutput output = Process.RunAndCaptureText(fileName, arguments, TimeSpan.FromSeconds(2));
+        return output.StandardOutput.Trim();
     }
 }

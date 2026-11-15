@@ -9,32 +9,20 @@ namespace MonitorDotnet.Bridge.Platform;
 /// </summary>
 internal static class MacProcessEnvironment
 {
+    /** Сколько ждать ответа ps: зависший вызов не должен задерживать срез данных. */
+    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(2);
+
     public static IReadOnlyList<KeyValuePair<string, string>> Read(int pid)
     {
-        var startInfo = new ProcessStartInfo("ps")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        startInfo.ArgumentList.Add("-p");
-        startInfo.ArgumentList.Add(pid.ToString());
-        startInfo.ArgumentList.Add("-wwE");
-        startInfo.ArgumentList.Add("-o");
-        startInfo.ArgumentList.Add("command=");
-
-        using var process = Process.Start(startInfo);
-        if (process is null)
-        {
-            return Array.Empty<KeyValuePair<string, string>>();
-        }
-
-        string output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit(2000);
+        // Один вызов вместо ручного запуска: среда читает стандартный вывод и ошибки сразу,
+        // поэтому процесс не зависнет на заполненном буфере, а таймаут ограничивает ожидание.
+        ProcessTextOutput output = Process.RunAndCaptureText(
+            "ps",
+            ["-p", pid.ToString(), "-wwE", "-o", "command="],
+            Timeout);
 
         // Первым токеном идёт сама команда запуска, дальше — переменные окружения вида KEY=VALUE.
-        string[] tokens = output.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string[] tokens = output.StandardOutput.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return ProcessEnvironment.Parse(tokens);
     }
 }
