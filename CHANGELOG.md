@@ -2,6 +2,31 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
+## [1.3.0] — 2026-11-15 ⚡
+
+### ⚡ .NET 11
+
+- 🟣 The bridge, the samples and the tests are retargeted to `net11.0`, so the bundled bridge now needs the .NET 11 runtime
+- 📦 The bridge uses `Microsoft.Diagnostics.NETCore.Client` 0.2.750501 and `Microsoft.Diagnostics.Tracing.TraceEvent` 4.0.0; the Aspire sample moved to Aspire 13.6.5 (13.6.1 had a known vulnerability)
+
+### 🔄 `dotnet watch`
+
+- 🔄 **Restart following**: `dotnet watch` relaunches the application after a crash (crash recovery), after a Hot Reload rebuild and when an Aspire AppHost restarts. Monitoring finds the new instance by the same command line and continues on its own, without asking you to pick a process again
+- ⚙️ `monitor-dotnet.followRestarts` switches the behaviour off; if the application does not come back (20 seconds for a manual attach, five minutes while a debug session is running) monitoring stops as before
+- 🧭 Any form of `dotnet watch` is recognised as a launcher, including `dotnet watch --device <id>` (device selection for MAUI) and `dotnet watch` without `run`, so the wrapper never wins over the application process
+- 🪟 Command lines with a quoted host path (`"C:\Program Files\dotnet\dotnet.exe" watch run`) are parsed correctly
+
+### 🩺 Diagnostics
+
+- 🧾 The bridge reports the exit code of the target process where the system provides it (Windows): a non-zero code means the application crashed, and the panel shows it after the process ends
+- 🧠 Issues found before a restart stay in the **Issues** view, grouped by the process they belong to
+- 💥 **Crash reports**: with `DOTNET_DbgEnableMiniDump=1` and `DOTNET_EnableCrashReport=1` the runtime writes `<dump>.crashreport.json` next to the dump; the extension finds the file after the process exits and offers to open it, with the managed stack traces of the crash
+- 🧵 Helpers that shell out on macOS (`ps`) now use `Process.RunAndCaptureText`: both output streams are drained at once, so a filled pipe can no longer hang the bridge, and a timeout bounds the wait
+
+### 🧪 Tests
+
+- 🧪 Bridge tests moved to xUnit v3 and Microsoft.Testing.Platform (`global.json` selects the runner): `npm run test:bridge` passes a run timeout (10 minutes) and a failure limit (5), so a hanging integration test no longer blocks the run
+
 ## [1.2.0] — 2026-11-07 🐛
 
 ### 🧠 Memory snapshots

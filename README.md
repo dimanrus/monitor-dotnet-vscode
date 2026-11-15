@@ -5,7 +5,7 @@
 <h1 align="center">🔍 Monitor Dotnet</h1>
 
 ![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-blue?style=flat-square)
-![.NET net10.0](https://img.shields.io/badge/.NET-net10.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
+![.NET net11.0](https://img.shields.io/badge/.NET-net11.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![License MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 
 > 📊 **Real-time monitoring for .NET applications in VS Code** — CPU load, memory, garbage collection, counters, metrics and environment variables.
@@ -31,6 +31,7 @@
 | 📐 | **Metrics** | `System.Diagnostics.Metrics` instruments grouped by meter |
 | 🌱 | **Environment** | Environment variables and system properties of the process |
 | 🐞 | **Debug integration** | Monitoring starts automatically on .NET debug sessions: `coreclr`, C# Dev Kit and Aspire |
+| 🔄 | **Restart following** | When `dotnet watch` relaunches the app after a crash or a Hot Reload rebuild, monitoring moves to the new process on its own |
 | 🎯 | **Process picker** | Choose which running process to monitor when several applications are launched together |
 | 🔌 | **Attach to process** | Connect to any running .NET process in two clicks |
 | 🧵 | **Call stack** | Snapshot the call stack of the running process |
@@ -50,12 +51,12 @@
 | | Requirement | Why it is needed |
 | --- | --- | --- |
 | 🖥️ | **VS Code 1.100 or newer** | Webview, localization and tree APIs in use. The minimum is enforced: `@types/vscode` is pinned to 1.100.0, so the build fails if an API newer than 1.100 is used |
-| 🟣 | **.NET 10 runtime** | The bundled bridge that reads EventPipe is a `net10.0` app, and it is started through `dotnet`. `dotnet` must be on `PATH`, otherwise set `monitor-dotnet.dotnetPath` |
+| 🟣 | **.NET 11 runtime** | The bundled bridge that reads EventPipe is a `net11.0` app, and it is started through `dotnet`. `dotnet` must be on `PATH`, otherwise set `monitor-dotnet.dotnetPath` |
 | 🔬 | `dotnet-stack`, `dotnet-gcdump`, `dotnet-trace`, `dotnet-dump`, `dotnet-symbol`, `dotnet-counters` *(optional)* | Needed for a call stack snapshot, memory snapshots, profiling, dumps, symbols and counter export. The extension offers to install a missing tool with one command |
 
 For Aspire projects the Aspire CLI has to be installed: it is the CLI that starts the AppHost project. The Aspire extension for VS Code is optional — monitoring attaches to the same process as the debugger.
 
-The application you monitor does not have to be .NET 10: EventPipe has been available since .NET Core 3.0, so .NET 5 apps and newer work as well.
+The application you monitor does not have to be .NET 11: EventPipe has been available since .NET Core 3.0, so .NET 5 apps and newer work as well.
 Windows, Linux and macOS are supported — private memory, environment variables and the command line are read through platform APIs. Mono and Unity are not supported.
 
 ---
@@ -75,6 +76,7 @@ Windows, Linux and macOS are supported — private memory, environment variables
 | `coreclr` launch of an assembly (`App.dll`) | `coreclr` | The application process (apphost or `dotnet` host) |
 | C# Dev Kit project launch (`projectPath` in the configuration) | `dotnet` | The project's application process, not the `dotnet run` wrapper |
 | Aspire AppHost (`aspire run` under the debugger) | `aspire` | The **AppHost** process — the same one the debugger is attached to. Services started by Aspire are not monitored automatically: attach to one with **Attach to .NET Process…** |
+| `dotnet watch` in a debug session (including `dotnet watch --device <id>` and an Aspire AppHost) | `coreclr`, `dotnet` or `aspire` | The application process, not the `dotnet watch` wrapper |
 
 Sessions of other .NET types (`clr` for .NET Framework, `dotnet-core`) are recognised as well. In an Aspire
 solution the dashboard, the orchestrator and the CLI are never offered as targets.
@@ -83,6 +85,18 @@ solution the dashboard, the orchestrator and the CLI are never offered as target
 assembly into `program`, and the same rules pick the application process. `.fsproj` is understood wherever
 a project file can be given. Profiling itself is runtime-level — the bridge reads EventPipe — so the
 language of the application does not matter.
+
+### 🔄 `dotnet watch` and restarts
+
+`dotnet watch` launches the application itself and relaunches it on its own: after a crash (crash recovery),
+after a Hot Reload rebuild and when an Aspire AppHost is restarted. Every relaunch creates a new process,
+so monitoring looks for the new instance by the same command line and connects to it without asking:
+
+- Monitoring continues automatically and the charts are filled with the data of the new process.
+- Issues found before the restart stay in the **Issues** view, grouped by the process they belong to.
+- The log reports why the previous process ended, and the panel keeps the exit code when the system
+  provides it.
+- Turn it off with `monitor-dotnet.followRestarts`. If the application does not come back (20 seconds for a manual attach, five minutes while a debug session is running) monitoring stops as before.
 
 ---
 
@@ -204,6 +218,10 @@ Buttons in the Performance view title bar:
 | 🔎 **Open Speedscope Profile** | — | Opens the newest `.speedscope.json` from the output folder (a picker appears if there are several) |
 | ⬇️ **Download Symbols for Dumps** | `dotnet-symbol` | PDB/DBG files next to the dumps, so stack traces show function names |
 
+On .NET 11 the stacks get shorter when Runtime Async is enabled (`<Features>runtime-async=on</Features>`):
+`dotnet-stack` and the trace reports show the asynchronous methods themselves instead of the
+compiler-generated state-machine frames around them, so a snapshot is easier to read.
+
 Results go to the `.monitor-dotnet` folder of the project, together with a `.gitignore` that keeps them
 out of the repository. Set `monitor-dotnet.profilingOutputDirectory` to put them somewhere else.
 If a tool is missing, the extension offers to install it with one command (`dotnet tool install --global …`).
@@ -223,6 +241,17 @@ meters, exception cards with their stacks and the finalization queue grouped by 
 several presets are shown once. Any panel can be collapsed with a click, and long lists have search and
 paging. The **Details** section keeps only the raw SOS output, and
 **Open text report** shows the complete report in an editor tab.
+
+### 💥 Crash reports
+
+A crashed application can bring its own report. With `DOTNET_DbgEnableMiniDump=1` and
+`DOTNET_EnableCrashReport=1` (or `DOTNET_EnableCrashReportOnly=1`) the runtime writes
+`<dump>.crashreport.json` next to the dump: managed stack traces, modules and the signal that
+ended the process. When the monitored application exits, the extension looks for that file and
+offers to open it, so the reason for the crash is one click away.
+
+In .NET 11 the report also works without a dump on Linux and macOS: with only `DOTNET_EnableCrashReport=1`
+it goes to the application output, which the debug console or the `dotnet watch` terminal shows.
 
 <p align="center">
   <img src="resources/screenshots/dump-analysis.png" alt="Memory dump analysis: GC heap segments with allocated and committed sizes, heap by type and heap composition with a filterable type table" width="900">
@@ -259,6 +288,7 @@ Both steps are optional — without the viewer the file opens as plain JSON, and
 | --- | --- | --- |
 | `monitor-dotnet.enableMonitoring` | `onDebugOrRun` | When to start monitoring: `onDebugOrRun`, `onDebug`, `never` |
 | `monitor-dotnet.autoReveal` | `true` | Open the panel when a debug session starts |
+| `monitor-dotnet.followRestarts` | `true` | Continue monitoring when the application is relaunched (`dotnet watch`, Hot Reload) |
 | `monitor-dotnet.refreshIntervalSeconds` | `1` | How often counters and metrics are refreshed |
 | `monitor-dotnet.chartWindowSeconds` | `120` | How many seconds of data the charts show |
 | `monitor-dotnet.enableIssueDetection` | `true` | Look for suspicious intervals on the charts |
@@ -309,7 +339,7 @@ The extension speaks the language of your VS Code interface.
                               ▲
                               │ one JSON message per line
                               ▼
-┌─────────── Bridge (MonitorDotnet.Bridge, .NET 10) ───────────┐
+┌─────────── Bridge (MonitorDotnet.Bridge, .NET 11) ───────────┐
 │  EventPipe session:                                          │
 │   • EventCounters                  → provider counters       │
 │   • System.Diagnostics.Metrics     → meters                  │
@@ -327,12 +357,12 @@ It attaches to the target process, parses the event stream and sends ready-made 
 
 | Path | Purpose |
 | --- | --- |
-| `src/core` | Framework-free logic: protocol, state, formatting, chart data, debuggee matching |
+| `src/core` | Framework-free logic: protocol, state, formatting, chart data, debuggee matching, restart following |
 | `src/monitor` | Bridge lifecycle, .NET process discovery, profiling tool wrappers |
 | `src/views` | Panels: Performance (webview provider), Counters and Environment (trees), status bar |
 | `src/webview` | Code that runs inside the webview: canvas rendering and message handling |
 | `src/extension.ts` | Activation, commands, debug session handling, context keys |
-| `bridge/MonitorDotnet.Bridge` | .NET 10 bridge: EventPipe session, event parsing, process statistics |
+| `bridge/MonitorDotnet.Bridge` | .NET 11 bridge: EventPipe session, event parsing, process statistics |
 | `bridge/MonitorDotnet.Bridge.Tests` | Bridge tests, including an end-to-end run against a real process |
 | `samples/SampleApp` | Demo application with counters, metrics and load |
 | `samples/WebApi` | ASP.NET Core web app for checking the `coreclr` and C# Dev Kit launch styles |
@@ -345,7 +375,7 @@ It attaches to the target process, parses the event stream and sends ready-made 
 
 ## 🧪 Build from source
 
-Requirements: **.NET SDK 10**, **Node.js 20+**, **VS Code 1.100+**.
+Requirements: **.NET SDK 11**, **Node.js 20+**, **VS Code 1.100+**.
 
 ```bash
 npm install
@@ -362,8 +392,8 @@ Useful commands:
 | `npm run watch` | Rebuild the extension and the panel on change |
 | `npm run typecheck` | Type check with TypeScript 7 (extension and webview separately) |
 | `npm test` | Extension tests, including dictionary consistency |
-| `npm run test:bridge` | Bridge tests with xunit |
-| `MONITOR_DOTNET_E2E=1 npm test` | End-to-end checks on real processes: `samples/SampleApp --stress` (charts and issue detection), plus `samples/WebApi` and `samples/AspireApp` for the debug session types. The CPU overload check needs a free machine: on a busy one it reports that the load never reached the threshold instead of failing |
+| `npm run test:bridge` | Bridge tests (xUnit v3 on Microsoft.Testing.Platform, with a run timeout and a failure limit) |
+| `npm run test:e2e` | End-to-end checks on real processes (files run one at a time, because they share the same sample apps): `samples/SampleApp --stress` (charts and issue detection), plus `samples/WebApi` and `samples/AspireApp` for the debug session types. The CPU overload check needs a free machine: on a busy one it reports that the load never reached the threshold instead of failing |
 
 ---
 
