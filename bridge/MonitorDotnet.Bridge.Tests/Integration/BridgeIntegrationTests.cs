@@ -26,7 +26,8 @@ public sealed class BridgeIntegrationTests
 
         JsonElement hello = Find(messages, "hello");
         Assert.Equal(pid, hello.GetProperty("pid").GetInt32());
-        Assert.Contains("10.", hello.GetProperty("runtimeVersion").GetString());
+        // Версия среды берётся из событий целевого процесса, а он собран под ту же версию .NET.
+        Assert.StartsWith($"{Environment.Version.Major}.", hello.GetProperty("runtimeVersion").GetString());
 
         IReadOnlyList<JsonElement> samples = FindAll(messages, "sample");
         Assert.True(samples.Count >= 3, $"Ожидалось несколько срезов, но получено {samples.Count}. stderr: {error}");

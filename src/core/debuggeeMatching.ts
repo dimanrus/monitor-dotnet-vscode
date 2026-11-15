@@ -220,7 +220,7 @@ function buildNeedles(hints: DebuggeeHints): Needle[] {
     }
 
     const normalized = normalize(raw);
-    // Путь без расширения: `/app/bin/Debug/net10.0/App.dll` и `/app/App.csproj` дают имя сборки.
+    // Путь без расширения: `/app/bin/Debug/net11.0/App.dll` и `/app/App.csproj` дают имя сборки.
     const withoutExtension = stripExtension(normalized);
     add(normalized, 3);
     add(withoutExtension, 3);
@@ -296,7 +296,7 @@ function fileName(value: string): string {
   return index >= 0 ? value.slice(index + 1) : value;
 }
 
-/** Каталог из пути: нужен для подсказок вроде `/app/bin/Debug/net10.0/App.dll`. */
+/** Каталог из пути: нужен для подсказок вроде `/app/bin/Debug/net11.0/App.dll`. */
 function directoryName(value: string): string {
   const index = value.lastIndexOf('/');
   return index > 0 ? value.slice(0, index) : '';

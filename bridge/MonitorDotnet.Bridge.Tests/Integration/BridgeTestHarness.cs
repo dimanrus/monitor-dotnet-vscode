@@ -15,7 +15,7 @@ internal sealed class BridgeTestHarness : IDisposable
     /// <summary>Запускает демонстрационное приложение и ждёт, пока оно сообщит свой PID.</summary>
     public async Task<int> StartSampleAppAsync()
     {
-        string dll = Path.Combine(RepositoryRoot, "samples", "SampleApp", "bin", BuildConfiguration, "net10.0", "SampleApp.dll");
+        string dll = Path.Combine(RepositoryRoot, "samples", "SampleApp", "bin", BuildConfiguration, "net11.0", "SampleApp.dll");
         Assert.True(File.Exists(dll), $"Не найдена сборка демонстрационного приложения: {dll}");
 
         var process = StartDotnet(dll, Array.Empty<string>());

@@ -2,7 +2,7 @@
 
   <!-- Тесты моста: проверяют разбор данных и реальный сбор метрик с демонстрационного приложения. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>

@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
+<Project Sdk="Aspire.AppHost.Sdk/13.6.5">
 
   <!--
     Пример Aspire-хоста: тот же набор свойств и пакетов, что и в обычном проекте AppHost.
@@ -6,7 +6,7 @@
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsAspireHost>true</IsAspireHost>
@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="13.6.1" />
+    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="13.6.5" />
   </ItemGroup>
 
   <ItemGroup>

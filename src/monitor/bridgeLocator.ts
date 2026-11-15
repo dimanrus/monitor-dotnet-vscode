@@ -94,7 +94,7 @@ async function tryBuildFromWorkspace(logger: Logger): Promise<string | undefined
     );
 
     const projectDirectory = path.dirname(project);
-    const output = path.join(projectDirectory, 'bin', 'Release', 'net10.0', BRIDGE_ASSEMBLY);
+    const output = path.join(projectDirectory, 'bin', 'Release', 'net11.0', BRIDGE_ASSEMBLY);
     if (existsSync(output)) {
       return output;
     }

@@ -24,7 +24,7 @@ import { createVscodeStub, StubWebviewView, type SentMessage, type VscodeStubOpt
 const require = createRequire(import.meta.url);
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const sampleDirectory = path.join(projectRoot, 'samples', 'SampleApp');
-const sampleHost = path.join(sampleDirectory, 'bin', 'Debug', 'net10.0', 'SampleApp');
+const sampleHost = path.join(sampleDirectory, 'bin', 'Debug', 'net11.0', 'SampleApp');
 
 const enabled = process.env.MONITOR_DOTNET_E2E === '1';
 /** Сколько миллисекунд ждать данные: автопоиск опирается на серию точек подряд. */

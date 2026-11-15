@@ -36,7 +36,7 @@ test('похожий процесс, запущенный до сессии, н�
   // Случай из реальной проверки: рядом уже работал такой же SampleApp,
   // запущенный за минуту до сессии. Подключаться к нему нельзя — ждём настоящую цель.
   const pid = selectDebuggeePid([
-    candidate(65043, 'dotnet bin/Debug/net10.0/SampleApp.dll', sessionStartMs - 60_000),
+    candidate(65043, 'dotnet bin/Debug/net11.0/SampleApp.dll', sessionStartMs - 60_000),
   ], {
     program,
     sessionStartMs,
@@ -48,7 +48,7 @@ test('похожий процесс, запущенный до сессии, н�
 
 test('когда рядом есть старый процесс, выбирается именно отлаживаемый', () => {
   const pid = selectDebuggeePid([
-    candidate(65043, 'dotnet bin/Debug/net10.0/SampleApp.dll', sessionStartMs - 60_000),
+    candidate(65043, 'dotnet bin/Debug/net11.0/SampleApp.dll', sessionStartMs - 60_000),
     candidate(67359, `${program.replace(/\.dll$/, '')}`, sessionStartMs + 3_000),
   ], {
     program,
@@ -192,9 +192,9 @@ const aspireRoot = '/repo/samples/AspireApp';
 test('в решении Aspire выбирается процесс AppHost, а не сервисы (регрессия)', () => {
   // Раньше побеждал самый поздний процесс — им оказывался запущенный сервис.
   const pid = selectDebuggeePid([
-    candidate(100, `${aspireRoot}/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost`, sessionStartMs + 1_000, 'AspireApp.AppHost'),
+    candidate(100, `${aspireRoot}/AspireApp.AppHost/bin/Debug/net11.0/AspireApp.AppHost`, sessionStartMs + 1_000, 'AspireApp.AppHost'),
     candidate(101, `dotnet run --project ${aspireRoot}/AspireApp.Api/AspireApp.Api.csproj --no-build`, sessionStartMs + 2_000),
-    candidate(102, `${aspireRoot}/AspireApp.Api/bin/Debug/net10.0/AspireApp.Api`, sessionStartMs + 3_000, 'AspireApp.Api'),
+    candidate(102, `${aspireRoot}/AspireApp.Api/bin/Debug/net11.0/AspireApp.Api`, sessionStartMs + 3_000, 'AspireApp.Api'),
   ], {
     // Расширение Aspire передаёт в конфигурации каталог проекта AppHost.
     program: `${aspireRoot}/AspireApp.AppHost`,
@@ -210,8 +210,8 @@ test('путь к файлу проекта AppHost тоже приводит к
   // Так выглядит конфигурация, если в `program` попал .csproj: имя без расширения совпадает
   // с именем сборки AppHost.
   const pid = selectDebuggeePid([
-    candidate(110, `${aspireRoot}/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost`, sessionStartMs + 1_000, 'AspireApp.AppHost'),
-    candidate(111, `${aspireRoot}/AspireApp.Api/bin/Debug/net10.0/AspireApp.Api`, sessionStartMs + 2_000, 'AspireApp.Api'),
+    candidate(110, `${aspireRoot}/AspireApp.AppHost/bin/Debug/net11.0/AspireApp.AppHost`, sessionStartMs + 1_000, 'AspireApp.AppHost'),
+    candidate(111, `${aspireRoot}/AspireApp.Api/bin/Debug/net11.0/AspireApp.Api`, sessionStartMs + 2_000, 'AspireApp.Api'),
   ], {
     program: `${aspireRoot}/AspireApp.AppHost/AspireApp.AppHost.csproj`,
     sessionStartMs,
@@ -224,7 +224,7 @@ test('путь к файлу проекта AppHost тоже приводит к
 test('projectPath из конфигурации C# Dev Kit выбирает приложение, а не обёртку dotnet run', () => {
   const pid = selectDebuggeePid([
     candidate(120, `dotnet run --project ${aspireRoot}/AspireApp.Api/AspireApp.Api.csproj --no-build`, sessionStartMs + 1_000),
-    candidate(121, `${aspireRoot}/AspireApp.Api/bin/Debug/net10.0/AspireApp.Api`, sessionStartMs + 2_000, 'AspireApp.Api'),
+    candidate(121, `${aspireRoot}/AspireApp.Api/bin/Debug/net11.0/AspireApp.Api`, sessionStartMs + 2_000, 'AspireApp.Api'),
   ], {
     projectPath: `${aspireRoot}/AspireApp.Api/AspireApp.Api.csproj`,
     sessionStartMs,
@@ -236,10 +236,10 @@ test('projectPath из конфигурации C# Dev Kit выбирает пр
 
 test('подсказка о рабочем каталоге не перебивает точное имя сборки', () => {
   const pid = selectDebuggeePid([
-    candidate(130, `${aspireRoot}/AspireApp.Api/bin/Debug/net10.0/AspireApp.Api`, sessionStartMs + 1_000, 'AspireApp.Api'),
-    candidate(131, `${aspireRoot}/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost`, sessionStartMs + 2_000, 'AspireApp.AppHost'),
+    candidate(130, `${aspireRoot}/AspireApp.Api/bin/Debug/net11.0/AspireApp.Api`, sessionStartMs + 1_000, 'AspireApp.Api'),
+    candidate(131, `${aspireRoot}/AspireApp.AppHost/bin/Debug/net11.0/AspireApp.AppHost`, sessionStartMs + 2_000, 'AspireApp.AppHost'),
   ], {
-    program: `${aspireRoot}/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost.dll`,
+    program: `${aspireRoot}/AspireApp.AppHost/bin/Debug/net11.0/AspireApp.AppHost.dll`,
     cwd: aspireRoot,
     sessionStartMs,
     excludePids: [],
@@ -258,11 +258,11 @@ const fsharpRoot = '/repo/samples/FSharpApp';
 
 test('F#-приложение находится по сборке из конфигурации запуска', () => {
   const pid = selectDebuggeePid([
-    candidate(140, `${fsharpRoot}/bin/Debug/net10.0/FSharpApp`, sessionStartMs + 1_000, 'FSharpApp'),
+    candidate(140, `${fsharpRoot}/bin/Debug/net11.0/FSharpApp`, sessionStartMs + 1_000, 'FSharpApp'),
     // Похожее имя не должно перебивать точное совпадение с путём к сборке.
-    candidate(141, `${fsharpRoot}/bin/Debug/net10.0/Old.FSharpApp`, sessionStartMs + 2_000, 'Old.FSharpApp'),
+    candidate(141, `${fsharpRoot}/bin/Debug/net11.0/Old.FSharpApp`, sessionStartMs + 2_000, 'Old.FSharpApp'),
   ], {
-    program: `${fsharpRoot}/bin/Debug/net10.0/FSharpApp.dll`,
+    program: `${fsharpRoot}/bin/Debug/net11.0/FSharpApp.dll`,
     cwd: fsharpRoot,
     sessionStartMs,
     excludePids: [],
@@ -277,7 +277,7 @@ test('файл проекта F# (.fsproj) в `program` не мешает най
   // и обёртка `dotnet run` не побеждает.
   const pid = selectDebuggeePid([
     candidate(150, `dotnet run --project ${fsharpRoot}/FSharpApp.fsproj`, sessionStartMs + 1_000),
-    candidate(151, `/usr/lib/dotnet/dotnet ${fsharpRoot}/bin/Debug/net10.0/FSharpApp.dll`, sessionStartMs + 2_000),
+    candidate(151, `/usr/lib/dotnet/dotnet ${fsharpRoot}/bin/Debug/net11.0/FSharpApp.dll`, sessionStartMs + 2_000),
   ], {
     program: `${fsharpRoot}/FSharpApp.fsproj`,
     cwd: fsharpRoot,

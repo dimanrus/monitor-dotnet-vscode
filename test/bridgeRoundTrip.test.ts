@@ -20,7 +20,7 @@ import { parseBridgeMessage } from '../src/core/protocol.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const bridgeDll = path.join(projectRoot, 'dist', 'bridge', 'MonitorDotnet.Bridge.dll');
-const sampleDll = path.join(projectRoot, 'samples', 'SampleApp', 'bin', 'Debug', 'net10.0', 'SampleApp.dll');
+const sampleDll = path.join(projectRoot, 'samples', 'SampleApp', 'bin', 'Debug', 'net11.0', 'SampleApp.dll');
 
 const missingArtifacts = !existsSync(bridgeDll) || !existsSync(sampleDll);
 

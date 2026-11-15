@@ -37,22 +37,22 @@ test('процесс распознаётся, если в командной с
 test('apphost распознаётся по сборке рядом с исполняемым файлом', () => {
   // Регрессия: отладчик .NET запускает apphost, в командной строке нет ни "dotnet", ни ".dll".
   const apphost = candidate(
-    '/home/user/app/bin/Debug/net10.0/SampleApp',
-    '/home/user/app/bin/Debug/net10.0/SampleApp',
+    '/home/user/app/bin/Debug/net11.0/SampleApp',
+    '/home/user/app/bin/Debug/net11.0/SampleApp',
   );
 
   assert.equal(
-    isDotnetCandidate(apphost, environmentWithAssemblies('/home/user/app/bin/Debug/net10.0/SampleApp')),
+    isDotnetCandidate(apphost, environmentWithAssemblies('/home/user/app/bin/Debug/net11.0/SampleApp')),
     true,
   );
 });
 
 test('apphost распознаётся, даже если путь в командной строке относительный', () => {
   // Путь берём от операционной системы: в командной строке он может быть относительным.
-  const apphost = candidate('./bin/Debug/net10.0/SampleApp', '/repo/samples/SampleApp/bin/Debug/net10.0/SampleApp');
+  const apphost = candidate('./bin/Debug/net11.0/SampleApp', '/repo/samples/SampleApp/bin/Debug/net11.0/SampleApp');
 
   assert.equal(
-    isDotnetCandidate(apphost, environmentWithAssemblies('/repo/samples/SampleApp/bin/Debug/net10.0/SampleApp')),
+    isDotnetCandidate(apphost, environmentWithAssemblies('/repo/samples/SampleApp/bin/Debug/net11.0/SampleApp')),
     true,
   );
 });
@@ -67,14 +67,14 @@ test('служебные процессы мониторинга и редакт
   assert.equal(isIgnored(candidate('dotnet-counters monitor -p 1')), true);
   assert.equal(isIgnored(candidate('/usr/share/code/code /home/user/.vscode/extensions/app/bin/server')), true);
 
-  assert.equal(isIgnored(candidate('/home/user/app/bin/Debug/net10.0/SampleApp')), false);
+  assert.equal(isIgnored(candidate('/home/user/app/bin/Debug/net11.0/SampleApp')), false);
 });
 
 test('оболочка, которая лишь упоминает путь к .dll, не считается процессом .NET (регрессия)', () => {
   // Случай из живой проверки: `bash -c` с текстом команды в аргументах попадал в кандидаты
   // и мог обыграть настоящую цель при выборе «самого позднего» процесса.
   assert.equal(
-    isDotnetCandidate(candidate('/bin/bash -c node probe.ts --program /repo/App/bin/Debug/net10.0/App.dll'), noAssemblies),
+    isDotnetCandidate(candidate('/bin/bash -c node probe.ts --program /repo/App/bin/Debug/net11.0/App.dll'), noAssemblies),
     false,
   );
   assert.equal(
@@ -93,17 +93,17 @@ test('инфраструктура Aspire не попадает в кандид�
   assert.equal(isIgnored(candidate('/home/user/.dotnet/tools/.store/aspire.cli/13.6.1/dashboard/Aspire.Dashboard')), true);
   assert.equal(isIgnored(candidate('/home/user/.dotnet/tools/.store/aspire.cli/13.6.1/dcp/dcp start-apiserver')), true);
   // Сам проект AppHost при этом остаётся кандидатом.
-  assert.equal(isIgnored(candidate('/repo/AspireApp.AppHost/bin/Debug/net10.0/AspireApp.AppHost')), false);
+  assert.equal(isIgnored(candidate('/repo/AspireApp.AppHost/bin/Debug/net11.0/AspireApp.AppHost')), false);
 });
 
 test('службы времени разработки Avalonia не считаются целью отладки', () => {
   // Регрессия: компилятор XAML запускает само приложение, и его apphost попадал в кандидаты.
   assert.equal(isIgnored(candidate(
     'dotnet exec --runtimeconfig C:\\Users\\u\\.nuget\\packages\\avalonia.buildservices\\11.3.2\\tools\\netstandard2.0\\runtimeconfig.json ' +
-      'C:\\repo\\Rupor.Desktop\\bin\\Debug\\net10.0\\Rupor.Desktop.exe',
+      'C:\\repo\\Rupor.Desktop\\bin\\Debug\\net11.0\\Rupor.Desktop.exe',
   )), true);
   // Само приложение остаётся кандидатом.
-  assert.equal(isIgnored(candidate('C:\\repo\\Rupor.Desktop\\bin\\Debug\\net10.0\\Rupor.Desktop.exe')), false);
+  assert.equal(isIgnored(candidate('C:\\repo\\Rupor.Desktop\\bin\\Debug\\net11.0\\Rupor.Desktop.exe')), false);
 });
 
 test('время старта берётся из миллисекунд, которые считает PowerShell', () => {

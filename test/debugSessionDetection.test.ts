@@ -27,9 +27,9 @@ const require = createRequire(import.meta.url);
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const samplesRoot = path.join(projectRoot, 'samples');
 const webApiDirectory = path.join(samplesRoot, 'WebApi');
-const webApiHost = path.join(webApiDirectory, 'bin', 'Debug', 'net10.0', 'WebApi');
+const webApiHost = path.join(webApiDirectory, 'bin', 'Debug', 'net11.0', 'WebApi');
 const aspireDirectory = path.join(samplesRoot, 'AspireApp');
-const aspireHost = path.join(aspireDirectory, 'AspireApp.AppHost', 'bin', 'Debug', 'net10.0', 'AspireApp.AppHost');
+const aspireHost = path.join(aspireDirectory, 'AspireApp.AppHost', 'bin', 'Debug', 'net11.0', 'AspireApp.AppHost');
 const aspireCli = path.join(process.env.HOME ?? '', '.dotnet', 'tools', 'aspire');
 
 const enabled = process.env.MONITOR_DOTNET_E2E === '1';
@@ -211,7 +211,7 @@ test('переключение между процессами связки: д�
   // Две программы запущены одновременно — так выглядит запуск связки проектов.
   const api = await startApplication(webApiHost, ['--urls', 'http://127.0.0.1:5083'], webApiDirectory);
   const sample = await startApplication(
-    path.join(samplesRoot, 'SampleApp', 'bin', 'Debug', 'net10.0', 'SampleApp'),
+    path.join(samplesRoot, 'SampleApp', 'bin', 'Debug', 'net11.0', 'SampleApp'),
     ['--exit-after', '600'],
     path.join(samplesRoot, 'SampleApp'),
   );
@@ -226,7 +226,7 @@ test('переключение между процессами связки: д�
       configuration: {
         type: 'coreclr',
         request: 'launch',
-        program: path.join(webApiDirectory, 'bin', 'Debug', 'net10.0', 'WebApi.dll'),
+        program: path.join(webApiDirectory, 'bin', 'Debug', 'net11.0', 'WebApi.dll'),
         cwd: webApiDirectory,
       },
       workspaceFolder: { uri: { fsPath: webApiDirectory } },
@@ -240,7 +240,7 @@ test('переключение между процессами связки: д�
       configuration: {
         type: 'coreclr',
         request: 'launch',
-        program: path.join(samplesRoot, 'SampleApp', 'bin', 'Debug', 'net10.0', 'SampleApp.dll'),
+        program: path.join(samplesRoot, 'SampleApp', 'bin', 'Debug', 'net11.0', 'SampleApp.dll'),
         cwd: path.join(samplesRoot, 'SampleApp'),
       },
       workspaceFolder: { uri: { fsPath: path.join(samplesRoot, 'SampleApp') } },
@@ -309,7 +309,7 @@ test('ASP.NET Core: сессия coreclr подключается к проце�
       configuration: {
         type: 'coreclr',
         request: 'launch',
-        program: path.join(webApiDirectory, 'bin', 'Debug', 'net10.0', 'WebApi.dll'),
+        program: path.join(webApiDirectory, 'bin', 'Debug', 'net11.0', 'WebApi.dll'),
         cwd: webApiDirectory,
       },
       workspaceFolder: { uri: { fsPath: webApiDirectory } },
