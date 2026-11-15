@@ -35,7 +35,7 @@ interface LoadedExtension {
 }
 
 async function buildExtension(): Promise<string> {
-  const outfile = path.join(projectRoot, 'dist', 'extension.cjs');
+  const outfile = path.join(projectRoot, 'dist', 'extension.target-selection.test.cjs');
   await build({
     entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
     outfile,

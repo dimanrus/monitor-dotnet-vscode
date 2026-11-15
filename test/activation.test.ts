@@ -31,7 +31,7 @@ interface WebviewProvider {
 
 /** Собирает расширение во временный CommonJS-файл. */
 async function buildExtension(): Promise<string> {
-  const outfile = path.join(projectRoot, 'dist', 'extension.cjs');
+  const outfile = path.join(projectRoot, 'dist', 'extension.activation.test.cjs');
   await build({
     entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
     outfile,

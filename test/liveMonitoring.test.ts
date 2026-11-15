@@ -6,7 +6,7 @@
  * графиков доходят живые точки, а автопоиск проблем отмечает перегрузку CPU.
  *
  * Проверка тяжёлая (сборка примера, ожидание данных), поэтому включается вручную:
- * `MONITOR_DOTNET_E2E=1 npm test`. Без переменной тест пропускается.
+ * `npm run test:e2e`. Без переменной тест пропускается.
  */
 
 import assert from 'node:assert/strict';
@@ -38,7 +38,7 @@ interface LoadedExtension {
 
 /** Собирает расширение в CommonJS-бандл (как при обычной сборке). */
 async function buildExtension(): Promise<string> {
-  const outfile = path.join(projectRoot, 'dist', 'extension.cjs');
+  const outfile = path.join(projectRoot, 'dist', 'extension.live-monitoring.test.cjs');
   await build({
     entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
     outfile,

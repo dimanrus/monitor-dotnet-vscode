@@ -10,7 +10,7 @@
  *  - Aspire: отлаживается проект AppHost, который запускает Aspire CLI.
  *
  * Проверка тяжёлая (сборка примеров, запуск Aspire с дашбордом), включается вручную:
- * `MONITOR_DOTNET_E2E=1 npm test`.
+ * `npm run test:e2e`.
  */
 
 import assert from 'node:assert/strict';
@@ -46,7 +46,7 @@ interface LoadedExtension {
 
 /** Собирает расширение в CommonJS-бандл (как при обычной сборке). */
 async function buildExtension(): Promise<string> {
-  const outfile = path.join(projectRoot, 'dist', 'extension.cjs');
+  const outfile = path.join(projectRoot, 'dist', 'extension.session-detection.test.cjs');
   await build({
     entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
     outfile,

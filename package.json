@@ -609,6 +609,7 @@
     "watch": "node scripts/build.ts --watch",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.webview.json",
     "test": "node --test \"src/**/*.test.ts\" \"test/**/*.test.ts\"",
+    "test:e2e": "MONITOR_DOTNET_E2E=1 node --test --test-concurrency=1 \"src/**/*.test.ts\" \"test/**/*.test.ts\"",
     "bridge:build": "dotnet publish bridge/MonitorDotnet.Bridge/MonitorDotnet.Bridge.csproj -c Release -o media/bridge",
     "test:bridge": "dotnet test --project bridge/MonitorDotnet.Bridge.Tests/MonitorDotnet.Bridge.Tests.csproj --timeout 10m --maximum-failed-tests 5",
     "vscode:prepublish": "node scripts/build.ts --production",

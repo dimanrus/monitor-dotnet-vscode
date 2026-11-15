@@ -8,7 +8,7 @@
  * а не подкоманды `dotnet`. Раньше расширение запускало `dotnet dotnet-trace`, получало
  * «command or file was not found» и принимало это за отсутствие инструмента.
  *
- * Запускается вручную: `MONITOR_DOTNET_E2E=1 npm test`.
+ * Запускается вручную: `npm run test:e2e`.
  */
 
 import assert from 'node:assert/strict';
@@ -44,7 +44,7 @@ async function prepareBuild(): Promise<string> {
   });
   assert.equal(built.status, 0, `сборка примера не удалась:\n${built.stdout}\n${built.stderr}`);
 
-  const outfile = path.join(projectRoot, 'dist', 'extension.cjs');
+  const outfile = path.join(projectRoot, 'dist', 'extension.profiling.test.cjs');
   await build({
     entryPoints: [path.join(projectRoot, 'src', 'extension.ts')],
     outfile,
