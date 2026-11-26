@@ -39,6 +39,8 @@ export interface MonitorSettings {
   traceProfile: TraceProfile;
   /** Длительность записи профиля в секундах; 0 — до остановки. */
   traceDurationSeconds: number;
+  /** Длительность снимка CPU в секундах. */
+  cpuSnapshotSeconds: number;
   dumpType: DumpType;
   /** Добавлять к дампу отчёт о сбое (`--crashreport`). */
   dumpCrashReport: boolean;
@@ -65,6 +67,7 @@ export function getSettings(): MonitorSettings {
     enableIssueDetection: configuration.get<boolean>('enableIssueDetection', true),
     traceProfile: configuration.get<TraceProfile>('traceProfile', 'default'),
     traceDurationSeconds: clamp(configuration.get<number>('traceDurationSeconds', 0), 0, 86_400),
+    cpuSnapshotSeconds: clamp(configuration.get<number>('cpuSnapshotSeconds', 5), 1, 300),
     dumpType: configuration.get<DumpType>('dumpType', 'Heap'),
     dumpCrashReport: configuration.get<boolean>('dumpCrashReport', false),
   };

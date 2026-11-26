@@ -177,6 +177,24 @@
         "icon": "$(debug-stop)"
       },
       {
+        "command": "monitor-dotnet.takeCpuSnapshot",
+        "title": "%command.takeCpuSnapshot.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "monitor-dotnet.openCpuSnapshot",
+        "title": "%command.openCpuSnapshot.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "monitor-dotnet.compareCpuSnapshots",
+        "title": "%command.compareCpuSnapshots.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(diff)"
+      },
+      {
         "command": "monitor-dotnet.openSettings",
         "title": "%command.openSettings.title%",
         "category": "Monitor Dotnet",
@@ -589,6 +607,13 @@
           "minimum": 0,
           "maximum": 86400,
           "description": "%config.traceDurationSeconds.description%"
+        },
+        "monitor-dotnet.cpuSnapshotSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 300,
+          "description": "%config.cpuSnapshotSeconds.description%"
         },
         "monitor-dotnet.dumpType": {
           "type": "string",

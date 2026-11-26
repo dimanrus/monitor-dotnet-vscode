@@ -3,7 +3,8 @@
  *
  * esbuild собирает два бандла:
  *  1. dist/extension.cjs — код расширения для хоста VS Code (CommonJS, Node);
- *  2. dist/webview/charts.js и charts.css — логика панели графиков для webview (браузер).
+ *  2. dist/webview/charts.js и charts.css — логика панели графиков для webview (браузер);
+ *  3. dist/webview/dump.js, dump.css и cpu.js, cpu.css — панели разбора дампа и снимка CPU.
  *
  * TypeScript 7 (нативный компилятор) используется для проверки типов: `npm run typecheck`.
  */
@@ -33,6 +34,19 @@ const extensionOptions: BuildOptions = {
 const webviewOptions: BuildOptions = {
   entryPoints: [path.join(root, 'src', 'webview', 'charts.ts')],
   outfile: path.join(root, 'dist', 'webview', 'charts.js'),
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  target: 'es2022',
+  sourcemap: !production,
+  minify: production,
+  logLevel: 'info',
+};
+
+/** Панель снимка CPU: отдельный бандл со своим стилем. */
+const cpuWebviewOptions: BuildOptions = {
+  entryPoints: [path.join(root, 'src', 'webview', 'cpu.ts')],
+  outfile: path.join(root, 'dist', 'webview', 'cpu.js'),
   bundle: true,
   platform: 'browser',
   format: 'iife',
@@ -103,15 +117,21 @@ async function main(): Promise<void> {
       context(extensionOptions),
       context(webviewOptions),
       context(dumpWebviewOptions),
+      context(cpuWebviewOptions),
     ]);
     await Promise.all(contexts.map(item => item.watch()));
     console.log('Сборка расширения и панели графиков запущена в режиме наблюдения.');
     return;
   }
 
-  await Promise.all([build(extensionOptions), build(webviewOptions), build(dumpWebviewOptions)]);
+  await Promise.all([
+    build(extensionOptions),
+    build(webviewOptions),
+    build(dumpWebviewOptions),
+    build(cpuWebviewOptions),
+  ]);
   await copyBridgeIfPresent();
-  console.log('Собрано: dist/extension.cjs, dist/webview/charts.js, dist/webview/charts.css, dist/webview/dump.js, dist/webview/dump.css');
+  console.log('Собрано: dist/extension.cjs, dist/webview/{charts,dump,cpu}.js и их стили.');
 }
 
 await main();

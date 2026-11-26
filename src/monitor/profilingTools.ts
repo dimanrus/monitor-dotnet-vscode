@@ -6,9 +6,8 @@
  */
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { stat, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import { formatBytes } from '../core/formatting.ts';
 import { localeTag, translate } from '../core/locale.ts';
@@ -33,8 +32,10 @@ import {
   type SosAnalysis,
 } from './dumpAnalysis.ts';
 import { listDumpFiles, listMemoryFiles, listSnapshotFiles, type DumpFileInfo } from './dumpFiles.ts';
+import { compareCpuProfiles, parseSpeedscope, type CpuProfile } from '../core/cpuProfile.ts';
 import { analyzeGcdumpOutput, formatGcdumpReport } from './gcdumpAnalysis.ts';
 import { DumpAnalysisPanel, type DumpDrilldownHost } from '../views/dumpAnalysisPanel.ts';
+import { CpuProfilePanel } from '../views/cpuProfilePanel.ts';
 import {
   CALL_STACK_TOOL,
   COUNTERS_TOOL,
@@ -52,16 +53,28 @@ import {
   withSpeedscopeAssociation,
 } from './editorAssociations.ts';
 import { defaultOutputDirectory, listResultFiles, prepareOutputDirectory } from './outputDirectory.ts';
-import { formatToolDuration, speedscopeFileFor, traceBaseFor } from './toolArguments.ts';
+import {
+  cpuSnapshotArgs,
+  formatToolDuration,
+  netTraceFileFor,
+  speedscopeFileFor,
+  traceBaseFor,
+  traceTopNArgs,
+} from './toolArguments.ts';
+import { execFileAsync } from './exec.ts';
 import type { Logger } from '../logger.ts';
-
-const execFileAsync = promisify(execFile);
 
 /** Параметры записи профиля. */
 export interface ProfilingOptions {
   /** Профиль `dotnet-trace`; `default` — не передавать `--profile`. */
   profile?: string;
   /** Длительность записи в секундах; 0 или пусто — до остановки. */
+  durationSeconds?: number;
+}
+
+/** Параметры снимка CPU: короткая запись сэмплирующего профиля. */
+export interface CpuSnapshotOptions {
+  /** Сколько секунд сэмплировать; по умолчанию 5. */
   durationSeconds?: number;
 }
 
@@ -471,21 +484,65 @@ export class ProfilingTools implements vscode.Disposable {
    * Показывает самые «дорогие» методы из записанного трейса.
    * Быстрый ответ «кто занимал стек», когда открывать Speedscope незачем.
    */
-  async showTraceTopMethods(dotnetPath: string, outputDirectory: string): Promise<void> {
+  async showTraceTopMethods(
+    dotnetPath: string,
+    outputDirectory: string,
+    targetFile?: string,
+  ): Promise<void> {
     const directory = await this.resolveOutputDirectory(outputDirectory);
-    const trace = await this.pickResultFile(directory, '.nettrace', translate('Select a trace to analyse'));
-    if (trace === undefined) {
+    let trace: string | undefined;
+
+    if (targetFile === undefined) {
+      trace = await this.pickResultFile(directory, '.nettrace', translate('Select a trace to analyse'));
+      if (trace === undefined) {
+        return;
+      }
+    } else {
+      trace = netTraceFileFor(targetFile);
+      if (trace === undefined) {
+        void vscode.window.showWarningMessage(translate(
+          'Monitor Dotnet: {0} is not a trace or a CPU snapshot.',
+          path.basename(targetFile),
+        ));
+        return;
+      }
+
+      const info = await stat(trace).catch(() => undefined);
+      if (info === undefined) {
+        // У снимка нет парного `.nettrace`: в отчёте CPU топ методов уже показан.
+        if (/\.speedscope\.json$/i.test(targetFile)) {
+          this.logger.info(translate('No .nettrace next to {0}; opening the CPU report.', targetFile));
+          await this.openCpuSnapshot(outputDirectory, targetFile);
+          return;
+        }
+
+        void vscode.window.showWarningMessage(translate(
+          'Monitor Dotnet: trace file not found: {0}',
+          trace,
+        ));
+        return;
+      }
+    }
+
+    // Сортировка влияет на порядок списка; в выводе есть и Inclusive, и Exclusive.
+    const order = await vscode.window.showQuickPick(
+      [
+        { label: translate('Exclusive time'), value: false },
+        { label: translate('Inclusive time'), value: true },
+      ],
+      { title: translate('Sort by') },
+    );
+    if (order === undefined) {
       return;
     }
 
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: translate('Monitor Dotnet: reading the trace…') },
       async () => {
-        const output = await this.runTool(TRACE_TOOL, dotnetPath, [
-          'report', trace,
-          'topN',
-          '-n', '20',
-        ]);
+        const output = await this.runTool(TRACE_TOOL, dotnetPath, traceTopNArgs(trace, {
+          number: 20,
+          inclusive: order.value,
+        }));
         if (output === undefined) {
           return;
         }
@@ -559,6 +616,65 @@ export class ProfilingTools implements vscode.Disposable {
       { title, placeHolder: translate('Newest files first') },
     );
     return picked?.file;
+  }
+
+  /** Выбор снимка CPU: свежие первыми, уже выбранный исключается. */
+  private async pickCpuSnapshot(
+    directory: string,
+    title: string,
+    exclude?: string,
+  ): Promise<string | undefined> {
+    const files = (await listResultFiles(directory, '.speedscope.json'))
+      .filter(file => file !== exclude);
+    if (files.length === 0) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no CPU snapshot found in {0}. Take a CPU snapshot first.',
+        directory,
+      ));
+      return undefined;
+    }
+
+    if (files.length === 1) {
+      return files[0];
+    }
+
+    const picked = await vscode.window.showQuickPick(
+      files.map(file => ({ label: path.basename(file), file })),
+      { title, placeHolder: translate('Newest files first') },
+    );
+    return picked?.file;
+  }
+
+  /** Читает и разбирает `.speedscope.json`, объясняя, что делать при ошибке. */
+  private async readCpuProfile(speedscope: string, trace: string): Promise<CpuProfile | undefined> {
+    const text = await readFile(speedscope, 'utf8').catch(() => undefined);
+    if (text === undefined) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: the Speedscope file was not written next to the trace: {0}',
+        trace,
+      ));
+      return undefined;
+    }
+
+    const info = await stat(speedscope).catch(() => undefined);
+    const profile = parseSpeedscope(text, speedscope, info?.mtimeMs);
+    if (profile === undefined) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: could not read the CPU profile {0}. Open it in Speedscope instead.',
+        path.basename(speedscope),
+      ));
+      return undefined;
+    }
+
+    if (profile.total <= 0) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: the profile {0} has no CPU samples (only waiting time). Record a longer snapshot or make sure the process is under load.',
+        path.basename(speedscope),
+      ));
+      return undefined;
+    }
+
+    return profile;
   }
 
   /**
@@ -1097,6 +1213,131 @@ export class ProfilingTools implements vscode.Disposable {
     if (this.traceProcess !== undefined) {
       this.traceProcess.kill('SIGKILL');
     }
+  }
+
+  /**
+   * Снимает снимок CPU: короткая запись сэмплирующего профиля и графический отчёт.
+   *
+   * Это аналог «Take Snapshot» в Visual Studio: фиксированная длительность,
+   * профиль `dotnet-sampled-thread-time` и сразу разобранные горячие методы, дерево и флеймграф.
+   */
+  async takeCpuSnapshot(
+    pid: number,
+    dotnetPath: string,
+    outputDirectory: string,
+    options: CpuSnapshotOptions = {},
+  ): Promise<string | undefined> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const seconds = Math.max(1, Math.round(options.durationSeconds ?? 5));
+    const trace = path.join(directory, `cpu-${pid}-${timestamp()}.nettrace`);
+    const executable = await this.locateTool(TRACE_TOOL, dotnetPath);
+    if (executable === undefined) {
+      return undefined;
+    }
+
+    this.logger.info(translate(
+      'Taking a CPU snapshot: dotnet-trace collect -p {0} for {1} s',
+      pid,
+      seconds,
+    ));
+    const finished = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: translate('Monitor Dotnet: sampling CPU for {0} s…', seconds),
+        cancellable: true,
+      },
+      (_progress, token) => new Promise<boolean>(resolve => {
+        const child = execFile(
+          executable,
+          cpuSnapshotArgs(pid, trace, seconds),
+          { maxBuffer: 32 * 1024 * 1024 },
+          error => {
+            if (error !== null && !token.isCancellationRequested) {
+              const text = describeError(error);
+              this.logger.error(translate('Tool {0} failed', TRACE_TOOL.command), error);
+              void vscode.window.showErrorMessage(
+                translate('Monitor Dotnet: {0} failed — {1}', TRACE_TOOL.purpose, text),
+              );
+              resolve(false);
+              return;
+            }
+
+            resolve(!token.isCancellationRequested);
+          },
+        );
+
+        token.onCancellationRequested(() => child.kill('SIGINT'));
+      }),
+    );
+
+    if (!finished) {
+      return undefined;
+    }
+
+    // `--format Speedscope` кладёт разобранный профиль рядом с `.nettrace`.
+    const speedscope = speedscopeFileFor(trace);
+    const profile = await this.readCpuProfile(speedscope, trace);
+    if (profile === undefined) {
+      return undefined;
+    }
+
+    this.logger.info(translate('CPU snapshot saved: {0}', speedscope));
+    CpuProfilePanel.show(this.extensionUri, profile, this.logger);
+    return speedscope;
+  }
+
+  /** Открывает сохранённый снимок CPU в графической панели. */
+  async openCpuSnapshot(outputDirectory: string, file?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const target = file ?? await this.pickCpuSnapshot(directory, translate('Select a CPU snapshot'));
+    if (target === undefined) {
+      return;
+    }
+
+    const profile = await this.readCpuProfile(target, target);
+    if (profile === undefined) {
+      return;
+    }
+
+    CpuProfilePanel.show(this.extensionUri, profile, this.logger);
+  }
+
+  /** Сравнивает два снимка CPU: показывает, какие методы стали дороже или дешевле. */
+  async compareCpuSnapshots(outputDirectory: string, firstFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const files = await listResultFiles(directory, '.speedscope.json');
+    if (files.length < 2) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: at least two CPU snapshots are needed in {0}. Take another snapshot first.',
+        directory,
+      ));
+      return;
+    }
+
+    const beforeFile = firstFile !== undefined && files.includes(firstFile)
+      ? firstFile
+      : await this.pickCpuSnapshot(directory, translate('Select the baseline CPU snapshot'));
+    if (beforeFile === undefined) {
+      return;
+    }
+
+    const afterFile = await this.pickCpuSnapshot(
+      directory,
+      translate('Select the CPU snapshot to compare'),
+      beforeFile,
+    );
+    if (afterFile === undefined) {
+      return;
+    }
+
+    const before = await this.readCpuProfile(beforeFile, beforeFile);
+    const after = await this.readCpuProfile(afterFile, afterFile);
+    if (before === undefined || after === undefined) {
+      return;
+    }
+
+    this.logger.info(translate('CPU snapshot comparison of {0} and {1}', beforeFile, afterFile));
+    CpuProfilePanel.showComparison(this.extensionUri, compareCpuProfiles(before, after), this.logger);
   }
 
   /**
