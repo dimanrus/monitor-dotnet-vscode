@@ -13,6 +13,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { WEBVIEW_SOURCE_STRINGS } from '../src/core/webviewStrings.ts';
 import { DUMP_WEBVIEW_SOURCE_STRINGS } from '../src/core/dumpWebviewStrings.ts';
+import { CPU_WEBVIEW_SOURCE_STRINGS } from '../src/core/cpuWebviewStrings.ts';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 
@@ -122,6 +123,7 @@ test('все строки интерфейса переведены на рус�
   const fromWebview = [
     ...Object.values(WEBVIEW_SOURCE_STRINGS),
     ...Object.values(DUMP_WEBVIEW_SOURCE_STRINGS),
+    ...Object.values(CPU_WEBVIEW_SOURCE_STRINGS),
   ];
 
   const missing: string[] = [];
@@ -140,6 +142,7 @@ test('в словаре строк нет лишних записей', async ()
   const fromWebview = new Set<string>([
     ...Object.values(WEBVIEW_SOURCE_STRINGS),
     ...Object.values(DUMP_WEBVIEW_SOURCE_STRINGS),
+    ...Object.values(CPU_WEBVIEW_SOURCE_STRINGS),
   ]);
 
   for (const key of Object.keys(bundle)) {
