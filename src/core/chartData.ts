@@ -80,6 +80,9 @@ export interface ChartMeta {
 /** Предел числа точек, которые отправляются в webview. */
 export const CHART_HISTORY_LIMIT = 5000;
 
+/** Видимое окно графиков: последние две минуты. */
+export const CHART_WINDOW_SECONDS = 120;
+
 /** Преобразует точку состояния в компактную точку графика. */
 export function toChartPoint(point: ProcessSeriesPoint): ChartPoint {
   return {

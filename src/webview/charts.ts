@@ -521,6 +521,7 @@ function bindControls(): void {
     state.selectedTarget = select.value;
     vscode.postMessage({ type: 'selectTarget', target: select.value });
   });
+
   applyPauseLabel();
 }
 

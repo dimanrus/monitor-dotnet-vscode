@@ -28,7 +28,6 @@ export interface MonitorSettings {
   /** Продолжать мониторинг, когда приложение запускается заново (`dotnet watch`, Hot Reload). */
   followRestarts: boolean;
   refreshIntervalSeconds: number;
-  chartWindowSeconds: number;
   counterProviders: string[];
   metricProviders: string[];
   dotnetPath: string;
@@ -57,7 +56,6 @@ export function getSettings(): MonitorSettings {
     autoReveal: configuration.get<boolean>('autoReveal', true),
     followRestarts: configuration.get<boolean>('followRestarts', true),
     refreshIntervalSeconds: clamp(configuration.get<number>('refreshIntervalSeconds', 1), 0.2, 60),
-    chartWindowSeconds: clamp(configuration.get<number>('chartWindowSeconds', 120), 10, 3600),
     counterProviders: sanitizeList(configuration.get<string[]>('counterProviders', [])),
     metricProviders: sanitizeList(configuration.get<string[]>('metricProviders', ['*'])),
     dotnetPath: (configuration.get<string>('dotnetPath', 'dotnet') || 'dotnet').trim(),

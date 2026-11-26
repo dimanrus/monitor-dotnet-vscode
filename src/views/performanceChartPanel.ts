@@ -8,6 +8,7 @@
 
 import * as vscode from 'vscode';
 import {
+  CHART_WINDOW_SECONDS,
   buildChartMeta,
   CHART_HISTORY_LIMIT,
   toChartGcEvent,
@@ -23,6 +24,7 @@ import type { IssueSlice } from '../core/issueStore.ts';
 import type { MonitorState } from '../core/monitorState.ts';
 import { buildWebviewStrings, type WebviewStrings } from '../core/webviewStrings.ts';
 import { translate } from '../core/locale.ts';
+import { createNonce } from '../core/webviewHtml.ts';
 import type { Logger } from '../logger.ts';
 
 /** Как часто панель перечитывает список целей, пока она видна. */
@@ -94,7 +96,6 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
 
   private readonly extensionUri: vscode.Uri;
   private readonly state: MonitorState;
-  private readonly getWindowSeconds: () => number;
   private readonly getRefreshIntervalSeconds: () => number;
   /** Проблемы для показа: найденные сейчас и сохранённые при смене процесса. */
   private readonly listIssues: () => ChartIssue[];
@@ -104,7 +105,6 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
   constructor(
     extensionUri: vscode.Uri,
     state: MonitorState,
-    getWindowSeconds: () => number,
     getRefreshIntervalSeconds: () => number,
     listIssues: () => ChartIssue[],
     logger: Logger,
@@ -112,7 +112,6 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
   ) {
     this.extensionUri = extensionUri;
     this.state = state;
-    this.getWindowSeconds = getWindowSeconds;
     this.getRefreshIntervalSeconds = getRefreshIntervalSeconds;
     this.listIssues = listIssues;
     this.logger = logger;
@@ -404,13 +403,13 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
       this.state.status,
       this.state.statusHint ?? this.state.lastError ?? null,
       this.getRefreshIntervalSeconds(),
-      this.getWindowSeconds(),
+      CHART_WINDOW_SECONDS,
       latest?.gcCollections ?? { gen0: 0, gen1: 0, gen2: 0 },
     );
   }
 
   private windowMs(): number {
-    return Math.max(1, this.getWindowSeconds()) * 1000;
+    return CHART_WINDOW_SECONDS * 1000;
   }
 
   /** Склеивает частые изменения в одно обновление. */
@@ -475,15 +474,4 @@ export class PerformanceChartPanel implements vscode.WebviewViewProvider, vscode
 </body>
 </html>`;
   }
-}
-
-/** Случайная строка для атрибута nonce в политике безопасности. */
-function createNonce(): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let index = 0; index < 32; index++) {
-    result += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
-  }
-
-  return result;
 }

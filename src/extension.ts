@@ -11,6 +11,7 @@ import { selectDebuggeePid } from './core/debuggeeMatching.ts';
 import { findRestartedTarget, type RestartSearch } from './core/restartFollow.ts';
 import { translate } from './core/locale.ts';
 import { MonitorState } from './core/monitorState.ts';
+import { CHART_WINDOW_SECONDS } from './core/chartData.ts';
 import { Logger } from './logger.ts';
 import { buildTargets, targetCount, type TargetGroups } from './core/targetChoices.ts';
 import { listDotnetProcesses } from './monitor/dotnetProcesses.ts';
@@ -76,8 +77,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const state = new MonitorState();
 
   // Состояние хранит столько точек, сколько помещается в окно графиков.
-  const applyWindow = (settings: MonitorSettings): void => {
-    state.setMaxPoints(Math.ceil(settings.chartWindowSeconds / Math.max(0.2, settings.refreshIntervalSeconds)));
+  const applyWindow = (current: MonitorSettings): void => {
+    state.setMaxPoints(Math.ceil(CHART_WINDOW_SECONDS / Math.max(0.2, current.refreshIntervalSeconds)));
   };
 
   applyWindow(getSettings());
@@ -128,7 +129,6 @@ export function activate(context: vscode.ExtensionContext): void {
   performancePanel = new PerformanceChartPanel(
     context.extensionUri,
     state,
-    () => settings.chartWindowSeconds,
     () => settings.refreshIntervalSeconds,
     // Полосы на графиках и список над ними относятся к процессу, чьи данные показаны.
     () => issues.current(),
