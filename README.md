@@ -39,9 +39,11 @@
 | 🧵 | **Call stack** | Snapshot the call stack of the running process |
 | 💾 | **Memory snapshot** | Collect a GCDump and reveal it in the file manager |
 | 🧠 | **Dump analysis** | Run `dotnet-dump` SOS commands on a `.dmp` and get a graphical report with charts |
-| 🗂️ | **Dumps view** | Every `.dmp` and `.gcdump` from the output folder in one list: open one for analysis or compare two files |
+| 🗂️ | **Dumps view** | Every `.dmp` from the output folder: open one for analysis, compare two dumps or start an interactive SOS terminal |
+| 🧬 | **Snapshots view** | CPU snapshots (`.speedscope.json`) and memory snapshots (`.gcdump`) grouped by type: open a report or compare two snapshots of the same type |
 | 🧠 | **Snapshot analysis** | `dotnet-gcdump report` for a `.gcdump`: heap by type in the same panel, with comparison between two snapshots |
 | ⏺️ | **Profiling** | Record a `dotnet-trace` profile in the Speedscope format, with a profile and a time limit |
+| 🧬 | **CPU snapshot** | Short CPU sampling session with top methods, a call tree, a flame graph and comparison of two snapshots |
 | 🔄 | **Trace files** | Convert an existing `.nettrace` to Speedscope or show its hottest methods |
 | 🌍 | **Two languages** | English and Russian, following the VS Code display language |
 | 📟 | **Status bar** | CPU load and private memory always in sight |
@@ -210,15 +212,25 @@ Buttons in the Performance view title bar:
 | Button | Tool | Result |
 | --- | --- | --- |
 | 🧵 **Collect Call Stack** | `dotnet-stack` | Call stack of every thread in a new editor tab |
-| 💾 **Get Memory Snapshot (GCDump)** | `dotnet-gcdump` | `.gcdump` file, revealed in the file manager; **Analyse Memory Snapshot** reads it back as a heap table |
+| 🧬 **Take Snapshot…** | `dotnet-trace`, `dotnet-gcdump` | Pick a **CPU snapshot** (sampling for `monitor-dotnet.cpuSnapshotSeconds`) or a **memory snapshot** (`.gcdump`); each opens in its own report |
 | 🗄️ **Take Memory Dump** | `dotnet-dump` | `.dmp` file of type Heap: stacks and managed memory for `dotnet-dump analyze` |
-| ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` **and** a ready `.speedscope.json` next to it; the profile and duration come from the settings |
+| ⏺️ **Start / Stop Performance Profiling** | `dotnet-trace` | `.nettrace` **and** a ready `.speedscope.json` next to it; the duration is picked per run (3–30 seconds or until stopped), the profile comes from the settings |
 | 🔄 **Convert Trace to Speedscope…** | `dotnet-trace` | Converts a `.nettrace` from the output folder without recording a new one |
-| 🔝 **Show Top Methods in Trace…** | `dotnet-trace` | `report topN`: the methods that stayed on the call stack the longest |
 | 📤 **Record Counters to File** | `dotnet-counters` | CSV or JSON for 30 seconds, 1 minute or 5 minutes |
 | 🏷️ **Add Line Numbers to Stack Trace** | `dotnet-stack` | `symbolicate`: file and line for a stack trace from logs, taken from the editor |
 | 🔎 **Open Speedscope Profile** | — | Opens the newest `.speedscope.json` from the output folder (a picker appears if there are several) |
 | ⬇️ **Download Symbols for Dumps** | `dotnet-symbol` | PDB/DBG files next to the dumps, so stack traces show function names |
+
+**CPU snapshots** follow the Visual Studio *CPU Usage* report: waiting and native time is left out,
+so percentages show real CPU work. The panel has a sortable method table, an expandable call tree,
+a flame graph with click-to-zoom breadcrumbs and a comparison view; the same `.speedscope.json`
+files open in Speedscope when you need the full timeline. Both kinds are listed in the **Snapshots**
+view, grouped by type: open one from there or compare it with another snapshot of the same type.
+The CPU report already contains the method table; the snapshot context menu also has **Show Top Methods in Trace…**
+for the plain `dotnet-trace report topN` text (it also appears when you right-click a `.nettrace` file).
+A GCDump keeps the managed heap only — thread stacks, exceptions and locks need a memory dump (`.dmp`),
+where the analysis picker is available. The GCDump report says so and has a **Take memory dump** button;
+the memory group in the **Snapshots** view offers the same action.
 
 On .NET 11 the stacks get shorter when Runtime Async is enabled (`<Features>runtime-async=on</Features>`):
 `dotnet-stack` and the trace reports show the asynchronous methods themselves instead of the
@@ -228,8 +240,9 @@ Results go to the `.monitor-dotnet` folder of the project, together with a `.git
 out of the repository. Set `monitor-dotnet.profilingOutputDirectory` to put them somewhere else.
 If a tool is missing, the extension offers to install it with one command (`dotnet tool install --global …`).
 
-Dumps and snapshots are analysed from the **Dumps** view: click a file there (or right-click it in the
-Explorer) and the graphical report opens.
+Dumps are analysed from the **Dumps** view, snapshots — from the **Snapshots** view: click a file there
+(or right-click it in the Explorer) and the graphical report opens. Snapshots are grouped by type, and
+comparison is only offered between files of the same type: CPU profiles with CPU profiles, GCDump with GCDump.
 
 Dump analysis runs `dotnet-dump analyze` in non-interactive mode on the newest `.dmp` from the output folder
 (or on the file you right-clicked in the Explorer). Pick one or more presets — **Overview**,
@@ -243,6 +256,12 @@ meters, exception cards with their stacks and the finalization queue grouped by 
 several presets are shown once. Any panel can be collapsed with a click, and long lists have search and
 paging. The **Details** section keeps only the raw SOS output, and
 **Open text report** shows the complete report in an editor tab.
+
+A type in the heap table is clickable: the panel asks `dotnet-dump` for its objects (`dumpheap -type`) and lists
+addresses and sizes. Click an object to drill into its fields (`dumpobj`): references stay clickable, while primitive
+values such as numbers, characters and booleans are shown as-is. **GC roots** runs `gcroot` and shows the keep-alive
+paths that reach the object. For commands the panel does not parse, **Open in dotnet-dump analyze** starts an
+interactive SOS terminal on the same dump (the same action is available in the **Dumps** view context menu).
 
 ### 💥 Crash reports
 
@@ -292,7 +311,6 @@ Both steps are optional — without the viewer the file opens as plain JSON, and
 | `monitor-dotnet.autoReveal` | `true` | Open the panel when a debug session starts |
 | `monitor-dotnet.followRestarts` | `true` | Continue monitoring when the application is relaunched (`dotnet watch`, Hot Reload) |
 | `monitor-dotnet.refreshIntervalSeconds` | `1` | How often counters and metrics are refreshed |
-| `monitor-dotnet.chartWindowSeconds` | `120` | How many seconds of data the charts show |
 | `monitor-dotnet.enableIssueDetection` | `true` | Look for suspicious intervals on the charts |
 | `monitor-dotnet.counterProviders` | base .NET set | EventCounters providers |
 | `monitor-dotnet.metricProviders` | `["*"]` | Meter filters |
@@ -302,6 +320,7 @@ Both steps are optional — without the viewer the file opens as plain JSON, and
 | `monitor-dotnet.profilingOutputDirectory` | empty | Where profile and snapshot files are written |
 | `monitor-dotnet.traceProfile` | `default` | `dotnet-trace` profile: `dotnet-common`, `dotnet-sampled-thread-time`, `gc-verbose`, `gc-collect` or `database` |
 | `monitor-dotnet.traceDurationSeconds` | `0` | Record the profile for this many seconds; `0` records until you stop it |
+| `monitor-dotnet.cpuSnapshotSeconds` | `5` | How many seconds to sample the CPU for a snapshot |
 | `monitor-dotnet.dumpType` | `Heap` | Dump type for `dotnet-dump`: `Full`, `Heap`, `Mini` or `Triage` |
 | `monitor-dotnet.dumpCrashReport` | `false` | Add a crash report to the memory dump |
 
