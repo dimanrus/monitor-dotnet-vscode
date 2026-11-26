@@ -4,9 +4,11 @@
 
 <h1 align="center">🔍 Monitor Dotnet</h1>
 
-![Версия 1.3.0](https://img.shields.io/badge/version-1.3.0-blue?style=flat-square)
-![.NET net11.0](https://img.shields.io/badge/.NET-net11.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
-![Лицензия MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue?style=flat-square" alt="Версия 1.3.0">
+  <img src="https://img.shields.io/badge/.NET-net11.0-512BD4?style=flat-square&amp;logo=dotnet&amp;logoColor=white" alt=".NET net11.0">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="Лицензия MIT">
+</p>
 
 > 📊 **Мониторинг .NET-приложений в реальном времени прямо в VS Code** — загрузка CPU, память, сборка мусора, счётчики, метрики и переменные окружения.
 > Монитор открывается сам при запуске отладки. Никаких внешних панелей и сервисов — всё работает локально.

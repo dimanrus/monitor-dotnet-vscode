@@ -4,9 +4,11 @@
 
 <h1 align="center">🔍 Monitor Dotnet</h1>
 
-![Version 1.3.0](https://img.shields.io/badge/version-1.3.0-blue?style=flat-square)
-![.NET net11.0](https://img.shields.io/badge/.NET-net11.0-512BD4?style=flat-square&logo=dotnet&logoColor=white)
-![License MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue?style=flat-square" alt="Version 1.3.0">
+  <img src="https://img.shields.io/badge/.NET-net11.0-512BD4?style=flat-square&amp;logo=dotnet&amp;logoColor=white" alt=".NET net11.0">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License MIT">
+</p>
 
 > 📊 **Real-time monitoring for .NET applications in VS Code** — CPU load, memory, garbage collection, counters, metrics and environment variables.
 > The monitor opens by itself when you start debugging. No web dashboard, no extra services — everything runs locally.
