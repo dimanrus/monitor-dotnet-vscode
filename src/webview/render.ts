@@ -12,6 +12,7 @@ import {
   type ChartIssue,
   type ChartPoint,
 } from '../core/chartData.ts';
+import { formatClockTime } from '../core/formatting.ts';
 
 /** Ключ показателя, который выводится на графике. */
 export type SeriesKey = keyof Omit<ChartPoint, 't'>;
@@ -490,11 +491,4 @@ function generationColor(generation: number, palette: ChartPalette): string {
     default:
       return palette.gen2;
   }
-}
-
-/** Время в формате ЧЧ:ММ:СС. */
-function formatClockTime(timestampMs: number): string {
-  const date = new Date(timestampMs);
-  const pad = (value: number): string => value.toString().padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }

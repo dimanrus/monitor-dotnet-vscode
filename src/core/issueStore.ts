@@ -120,7 +120,7 @@ export class IssueStore {
       .filter(group => group.issues.length > 0)
       .sort((left, right) =>
         left.isCurrent === right.isCurrent
-          ? newest(right.issues) - newest(left.issues)
+          ? latestIssueTime(right.issues) - latestIssueTime(left.issues)
           : Number(right.isCurrent) - Number(left.isCurrent),
       );
   }
@@ -283,6 +283,6 @@ function gcEventKey(event: ChartGcEvent): string {
 }
 
 /** Время самой свежей проблемы: по нему процессы упорядочены между собой. */
-function newest(issues: readonly ChartIssue[]): number {
+function latestIssueTime(issues: readonly ChartIssue[]): number {
   return issues.length === 0 ? 0 : issues[0].toMs;
 }
