@@ -2,6 +2,49 @@
 
 > 🇷🇺 Русская версия: [CHANGELOG.ru.md](CHANGELOG.ru.md)
 
+## [1.4.0] — 2026-11-26 🔬
+
+### 🔍 Memory dump explorer
+
+- 🖱️ **Object inspection**: every type in the heap table is now clickable. The panel runs `dumpheap -type` and lists the objects of that type with address, method table and size
+- 🧬 **Field drilling**: click an object to inspect its fields with `dumpobj` — field name, type, offset and value. Primitive values (numbers, characters, booleans) are shown as-is; object references stay clickable and open the next object
+- 🌳 **GC roots**: the **GC roots** button runs `gcroot` and shows the keep-alive paths that reach the selected object
+- ⌨️ **Open in dotnet-dump analyze**: a button in the dump panel and the new `monitor-dotnet.openDumpInTerminal` command (also in the **Dumps** view) start an interactive SOS terminal on the same `.dmp`
+- 🧯 Instance lists are capped at 1000 rows with a hint to continue in the interactive terminal, so huge types such as `System.String` do not freeze the panel
+- ℹ️ Object inspection and field drilling are available for `.dmp` dumps; `.gcdump` snapshots still show types, counts and sizes because they contain no object addresses
+
+### 📊 Performance panel
+
+- 🎚️ **Profile duration** is now chosen when recording starts: 3, 5, 10, 20 or 30 seconds, or **Until stopped**
+- 🧹 The charts always show the last 2 minutes: the unclear **Chart time window** selector and the `monitor-dotnet.chartWindowSeconds` setting are gone
+
+### ⏺️ CPU profiling
+
+- 🔝 **Top methods** now offers sorting by **exclusive** or **inclusive** CPU time (`dotnet-trace report topN --inclusive`); the report keeps both columns
+
+### 🧬 CPU snapshots
+
+- 🧬 **Take CPU Snapshot** in the Performance view: a short sampling session (`dotnet-sampled-thread-time`) opens an in-editor report with the hottest methods, an expandable call tree and a flame graph
+- 🧭 **Compare CPU Snapshots…**: pick two `.speedscope.json` files and see which methods take more or less CPU, in percentage points, with the biggest changes first
+- 🚫 Waiting and native time (`UNMANAGED_CODE_TIME`) is excluded from the percentages, so the report shows real CPU work like Visual Studio's CPU Usage; the blocked time is shown as a separate tile
+- 🧵 Service frames added by `dotnet-trace` (the process node and the thread list) are hidden from the method table, and the call tree starts at the thread
+- ⚙️ `monitor-dotnet.cpuSnapshotSeconds` sets the sampling length (5 seconds by default); **Open CPU Snapshot…** and the Explorer context menu open existing profiles
+- 🔝 **Top methods** no longer need a global button: the CPU report shows them by itself, and the snapshot context menu runs `report topN` on the paired `.nettrace` (the same action appears for `.nettrace` files in the Explorer)
+
+### 🗂 Snapshots view
+
+- 🗂 **Snapshots view** in the Monitor Dotnet container: CPU profiles (`.speedscope.json`) and memory snapshots (`.gcdump`) are grouped by type, with size and modification time; a click opens the matching report
+- 🧭 **Compare within a type**: the group row and every file have a compare action, so a CPU snapshot is only compared with another CPU snapshot and a GCDump with another GCDump
+- 🧹 **Tidier Performance buttons**: the two snapshot actions collapsed into one **Take Snapshot…** picker (CPU or memory), and the title menu is split into snapshot, profiling, tools and setup groups
+- 🗄️ The **Dumps** view now lists only `.dmp` files; memory snapshots moved to the **Snapshots** view
+- ℹ️ The memory snapshot report explains that GCDump keeps the managed heap only and offers a **Take memory dump** button; the memory group in the **Snapshots** view has the same action for thread stacks, exceptions and locks
+
+### 🧹 Fixes and internals
+
+- 🧽 Removed duplicated helpers and unified shared code: `baseName` / `stripExtension` (`src/core/paths.ts`), `createNonce` (`src/core/webviewHtml.ts`), `execFileAsync` (`src/monitor/exec.ts`) and a single `formatClockTime`
+- 🏷️ Renamed colliding internal helpers (`newest`, `render`) and removed a duplicated `"Async state machines"` localization key
+- 🧪 Added parser tests for `dumpheap -type`, `dumpobj`, `gcroot` and `report topN` arguments; all checks pass
+
 ## [1.3.0] — 2026-11-15 ⚡
 
 ### ⚡ .NET 11
