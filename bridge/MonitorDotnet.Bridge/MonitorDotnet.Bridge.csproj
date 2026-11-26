@@ -22,7 +22,7 @@
     <!-- Подключение к процессу и управление сессией EventPipe. -->
     <PackageReference Include="Microsoft.Diagnostics.NETCore.Client" Version="0.2.750501" />
     <!-- Разбор потока событий EventPipe (счётчики, метрики, события GC). -->
-    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.0" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.2" />
   </ItemGroup>
 
   <ItemGroup>

@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="13.6.5" />
+    <PackageReference Include="Aspire.Dashboard.Sdk.linux-x64" Version="17.0.0" />
   </ItemGroup>
 
   <ItemGroup>
