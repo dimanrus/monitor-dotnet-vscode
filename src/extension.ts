@@ -443,9 +443,15 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
 
+      // Короткая запись (3–30 секунд) даёт воспроизводимый замер; «до остановки» — ручной режим.
+      const duration = await pickTraceDuration(settings.traceDurationSeconds);
+      if (duration === undefined) {
+        return;
+      }
+
       const target = await profiling.startProfiling(pid, settings.dotnetPath, settings.profilingOutputDirectory, {
         profile: settings.traceProfile,
-        durationSeconds: settings.traceDurationSeconds,
+        durationSeconds: duration,
       });
       if (target !== undefined) {
         void vscode.window.showInformationMessage(translate('Monitor Dotnet: profiling started ({0}).', target));
