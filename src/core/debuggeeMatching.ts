@@ -9,6 +9,8 @@
  * Без этой проверки легко подключиться к похожему процессу, который работал раньше.
  */
 
+import { baseName, stripExtension } from './paths.ts';
+
 /** Кандидат — процесс .NET, найденный в операционной системе. */
 export interface ProcessCandidate {
   pid: number;
@@ -221,12 +223,12 @@ function buildNeedles(hints: DebuggeeHints): Needle[] {
 
     const normalized = normalize(raw);
     // Путь без расширения: `/app/bin/Debug/net11.0/App.dll` и `/app/App.csproj` дают имя сборки.
-    const withoutExtension = stripExtension(normalized);
+    const withoutExtension = stripExtension(normalized, true);
     add(normalized, 3);
     add(withoutExtension, 3);
     // Имя сборки или проекта — самый надёжный признак: оно есть и в командной строке apphost,
     // и у хоста `dotnet`, и у `dotnet run --project`.
-    add(fileName(withoutExtension), 3);
+    add(baseName(withoutExtension), 3);
     // Каталог программы нужен для случая, когда в подсказке только сборка.
     add(directoryName(withoutExtension), 1);
   }
@@ -244,7 +246,7 @@ const RUNNER_PENALTY = 8;
 /** Процесс запущен хостом `dotnet`: он выступает обёрткой, а не самой программой. */
 function isDotnetHost(candidate: ProcessCandidate): boolean {
   const executable = candidate.executablePath ?? candidate.commandLine.trim().split(/\s+/)[0] ?? '';
-  const name = fileName(normalize(executable)).toLowerCase();
+  const name = baseName(normalize(executable)).toLowerCase();
   return name === 'dotnet' || name === 'dotnet.exe';
 }
 
@@ -296,17 +298,6 @@ function newest(candidates: readonly ProcessCandidate[]): ProcessCandidate | und
 function normalize(value: string): string {
   const unified = value.replace(/\\/g, '/');
   return process.platform === 'win32' ? unified.toLowerCase() : unified;
-}
-
-/** Отбрасывает расширение файла: сборки, исполняемые файлы и файлы проектов. */
-function stripExtension(value: string): string {
-  return value.replace(/\.(dll|exe|so|dylib|csproj|fsproj|vbproj)$/i, '');
-}
-
-/** Имя файла из пути. */
-function fileName(value: string): string {
-  const index = value.lastIndexOf('/');
-  return index >= 0 ? value.slice(index + 1) : value;
 }
 
 /** Каталог из пути: нужен для подсказок вроде `/app/bin/Debug/net11.0/App.dll`. */

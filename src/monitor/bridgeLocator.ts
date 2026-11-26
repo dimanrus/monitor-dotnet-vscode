@@ -3,16 +3,14 @@
  * Порядок поиска: настройка → встроенная сборка рядом с расширением → сборка из исходников рабочей области.
  */
 
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import { translate } from '../core/locale.ts';
 import type { Logger } from '../logger.ts';
+import { execFileAsync } from './exec.ts';
 
-const execFileAsync = promisify(execFile);
 const BRIDGE_ASSEMBLY = 'MonitorDotnet.Bridge.dll';
 const BRIDGE_EXECUTABLE = 'MonitorDotnet.Bridge';
 

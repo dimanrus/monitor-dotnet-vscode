@@ -8,13 +8,11 @@
  * Именно второй способ использует отладчик .NET, поэтому без его поддержки мониторинг не подключался.
  */
 
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, readlink, readdir } from 'node:fs/promises';
-import { promisify } from 'node:util';
 import type { ProcessCandidate } from '../core/debuggeeMatching.ts';
-
-const execFileAsync = promisify(execFile);
+import { baseName, stripExtension } from '../core/paths.ts';
+import { execFileAsync } from './exec.ts';
 
 /** Служебные процессы, которые не должны попадать в список кандидатов. */
 const IGNORED_COMMAND_FRAGMENTS = [
@@ -136,16 +134,6 @@ function executableFromCommandLine(commandLine: string): string {
 }
 
 /** Имя файла из пути (учитывает и прямые, и обратные слэши). */
-function baseName(value: string): string {
-  const index = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
-  return index >= 0 ? value.slice(index + 1) : value;
-}
-
-/** Отбрасывает расширение исполняемого файла или сборки. */
-function stripExtension(value: string): string {
-  return value.replace(/\.(dll|exe|so|dylib)$/i, '');
-}
-
 /** Список процессов платформенно-зависимым способом. */
 async function listAllProcesses(): Promise<ProcessCandidate[]> {
   try {
