@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Monitor Dotnet">
+  <defs>
+    <!-- Фон: глубокий индиго с фиолетовым свечением сверху. -->
+    <linearGradient id="bg" x1="72" y1="24" x2="452" y2="488" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9A6BFF"/>
+      <stop offset="0.42" stop-color="#6638F5"/>
+      <stop offset="1" stop-color="#29107D"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="0" cy="0" r="1" gradientTransform="translate(146 96) rotate(38) scale(330 260)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="0.42" stop-color="#D6C8FF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bgDeep" cx="0" cy="0" r="1" gradientTransform="translate(420 470) rotate(-28) scale(260 220)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#12003F" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#12003F" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Стеклянная окантовка и панели. -->
+    <linearGradient id="rim" x1="92" y1="24" x2="420" y2="496" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="0.28" stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0.62" stop-color="#FFFFFF" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.46"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="120" y1="104" x2="402" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.38"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#8FE8FF" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="glassRim" x1="112" y1="112" x2="404" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="0.52" stop-color="#FFFFFF" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#BFF8FF" stop-opacity="0.5"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="132" y1="146" x2="382" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#151041" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#1C0B5C" stop-opacity="0.34"/>
+    </linearGradient>
+
+    <!-- График и точка на нём. -->
+    <linearGradient id="pulse" x1="150" y1="282" x2="372" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4EF7C4"/>
+      <stop offset="0.55" stop-color="#8CFF9E"/>
+      <stop offset="1" stop-color="#DFFF7A"/>
+    </linearGradient>
+    <radialGradient id="dot" cx="0" cy="0" r="1" gradientTransform="translate(364 182) scale(22)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.52" stop-color="#D6FFE4"/>
+      <stop offset="1" stop-color="#62FFB2"/>
+    </radialGradient>
+
+    <!-- Мягкие световые пятна на стекле. -->
+    <radialGradient id="sheen">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="streak" x1="60" y1="430" x2="330" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="0.46" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="0.58" stop-color="#FFFFFF" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="190%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#0C0033" flood-opacity="0.5"/>
+    </filter>
+    <filter id="screenShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#07001F" flood-opacity="0.55"/>
+    </filter>
+    <filter id="glow" x="-90%" y="-90%" width="280%" height="280%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="squircle">
+      <path d="M150 8H362C448 8 504 64 504 150V362C504 448 448 504 362 504H150C64 504 8 448 8 362V150C8 64 64 8 150 8Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Сквиркл: заливка, свет и внутренняя стеклянная кромка. -->
+  <g clip-path="url(#squircle)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <rect width="512" height="512" fill="url(#bgGlow)"/>
+    <rect width="512" height="512" fill="url(#bgDeep)"/>
+    <ellipse cx="150" cy="112" rx="230" ry="120" fill="url(#sheen)" transform="rotate(-24 150 112)"/>
+    <path d="M-40 470C120 340 262 170 540 24L580 118C330 246 190 400 54 560Z" fill="url(#streak)"/>
+    <path d="M8 150C8 64 64 8 150 8H362C448 8 504 64 504 150V362C504 448 448 504 362 504H150C64 504 8 448 8 362Z"
+          fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="18"/>
+  </g>
+
+  <!-- Внешняя грань сквиркла. -->
+  <path d="M150 8H362C448 8 504 64 504 150V362C504 448 448 504 362 504H150C64 504 8 448 8 362V150C8 64 64 8 150 8Z"
+        fill="none" stroke="url(#rim)" stroke-width="3.5"/>
+
+  <!-- Плавающий стеклянный монитор. -->
+  <g filter="url(#softShadow)">
+    <rect x="92" y="112" width="328" height="230" rx="56" fill="url(#glass)" stroke="url(#glassRim)" stroke-width="3"/>
+    <path d="M136 126C226 104 330 108 388 142" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <!-- Экран: тёмное стекло и блик по верхней кромке. -->
+  <g filter="url(#screenShadow)">
+    <rect x="118" y="138" width="276" height="180" rx="38" fill="url(#screen)"/>
+    <rect x="118" y="138" width="276" height="180" rx="38" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+    <path d="M146 160C214 146 300 146 366 160" fill="none" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="3" stroke-linecap="round"/>
+  </g>
+
+  <!-- Линия графика и светящаяся точка. -->
+  <g filter="url(#glow)">
+    <path d="M148 276C164 274 174 246 192 242C210 238 220 258 236 252C252 246 258 202 278 198C298 194 306 224 322 220C338 216 344 186 364 182"
+          fill="none" stroke="url(#pulse)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="364" cy="182" r="16" fill="url(#dot)" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="3"/>
+  </g>
+
+  <!-- Подставка: стеклянная ножка и основание. -->
+  <g filter="url(#softShadow)">
+    <rect x="238" y="338" width="36" height="52" rx="18" fill="#FFFFFF" fill-opacity="0.34" stroke="url(#glassRim)" stroke-width="2"/>
+    <rect x="180" y="386" width="152" height="32" rx="16" fill="#FFFFFF" fill-opacity="0.42" stroke="url(#glassRim)" stroke-width="2.5"/>
+    <path d="M200 394H312" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>
