@@ -218,6 +218,12 @@
         "icon": "$(inspect)"
       },
       {
+        "command": "monitor-dotnet.openDumpInTerminal",
+        "title": "%command.openDumpInTerminal.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "monitor-dotnet.analyzeMemorySnapshot",
         "title": "%command.analyzeMemorySnapshot.title%",
         "category": "Monitor Dotnet",

@@ -1034,6 +1034,25 @@ async function attachToProcessCommand(
   await controller.start(picked.pid);
 }
 
+/** Варианты длительности записи профиля: короткий замер или ручная остановка. */
+async function pickTraceDuration(current: number): Promise<number | undefined> {
+  const options: Array<{ label: string; value: number }> = [
+    { label: translate('3 seconds'), value: 3 },
+    { label: translate('5 seconds'), value: 5 },
+    { label: translate('10 seconds'), value: 10 },
+    { label: translate('20 seconds'), value: 20 },
+    { label: translate('30 seconds'), value: 30 },
+    { label: translate('Until stopped'), value: 0 },
+  ];
+  // Текущая настройка стоит первой: её обычно и повторяют.
+  const initial = options.find(option => option.value === current) ?? options[options.length - 1];
+  const ordered = [initial, ...options.filter(option => option !== initial)];
+  const picked = await vscode.window.showQuickPick(ordered, {
+    title: translate('How long to record the profile'),
+  });
+  return picked?.value;
+}
+
 /** Возвращает PID активного мониторинга или показывает предупреждение. */
 function requirePid(controller: MonitorController): number | undefined {
   const pid = controller.pid;

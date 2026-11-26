@@ -24,11 +24,17 @@ import {
   commandsFromInput,
   formatAnalysisReport,
   formatComparisonReport,
+  parseDumpHeapInstances,
+  parseDumpObj,
+  parseGcRoot,
+  type DumpGcRoot,
+  type DumpObjectDetails,
+  type DumpObjectInstance,
   type SosAnalysis,
 } from './dumpAnalysis.ts';
 import { listDumpFiles, listMemoryFiles, listSnapshotFiles, type DumpFileInfo } from './dumpFiles.ts';
 import { analyzeGcdumpOutput, formatGcdumpReport } from './gcdumpAnalysis.ts';
-import { DumpAnalysisPanel } from '../views/dumpAnalysisPanel.ts';
+import { DumpAnalysisPanel, type DumpDrilldownHost } from '../views/dumpAnalysisPanel.ts';
 import {
   CALL_STACK_TOOL,
   COUNTERS_TOOL,
@@ -582,6 +588,14 @@ export class ProfilingTools implements vscode.Disposable {
       return;
     }
 
+    // Интерактивные переходы выполняются по запросу панели: тип → объекты → поля → корни.
+    const host: DumpDrilldownHost = {
+      openInTerminal: () => this.openDumpInTerminal(dotnetPath, outputDirectory, target),
+      inspectType: typeName => this.inspectDumpType(dotnetPath, target, typeName),
+      inspectObject: address => this.inspectDumpObject(dotnetPath, target, address),
+      findRoots: address => this.findDumpGcRoots(dotnetPath, target, address),
+    };
+
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -603,9 +617,87 @@ export class ProfilingTools implements vscode.Disposable {
         const options = await this.memoryFileOptions(target);
         const report = buildDumpReport(target, analyses, outputs, generatedAt, options);
         const textReport = formatAnalysisReport(target, analyses, outputs, generatedAt, options);
-        DumpAnalysisPanel.show(this.extensionUri, report, textReport, this.logger);
+        DumpAnalysisPanel.show(this.extensionUri, report, textReport, this.logger, host);
       },
     );
+  }
+
+  /**
+   * Открывает дамп в интерактивном `dotnet-dump analyze`.
+   * В терминале доступны любые SOS-команды, включая те, что не разбирает панель.
+   */
+  async openDumpInTerminal(dotnetPath: string, outputDirectory: string, dumpFile?: string): Promise<void> {
+    const directory = await this.resolveOutputDirectory(outputDirectory);
+    const target = dumpFile ?? (await listResultFiles(directory, '.dmp'))[0];
+    if (target === undefined) {
+      void vscode.window.showWarningMessage(translate(
+        'Monitor Dotnet: no memory dump found in {0}. Take a memory dump first.',
+        directory,
+      ));
+      return;
+    }
+
+    const executable = await this.locateTool(DUMP_TOOL, dotnetPath);
+    if (executable === undefined) {
+      return;
+    }
+
+    this.logger.info(translate('Opening the dump in dotnet-dump analyze: {0}', target));
+    const terminal = vscode.window.createTerminal({
+      name: translate('Monitor Dotnet: dotnet-dump analyze'),
+      cwd: directory,
+    });
+    terminal.show();
+    terminal.sendText(`"${executable}" analyze "${target}"`);
+  }
+
+  /** Выполняет одну SOS-команду над дампом и возвращает её вывод. */
+  private async runSosCommand(
+    dotnetPath: string,
+    dumpFile: string,
+    command: string,
+  ): Promise<string | undefined> {
+    return this.runTool(DUMP_TOOL, dotnetPath, buildAnalyzeArgs(dumpFile, [command]));
+  }
+
+  /** Объекты одного типа: `dumpheap -type`. */
+  private async inspectDumpType(
+    dotnetPath: string,
+    dumpFile: string,
+    typeName: string,
+  ): Promise<DumpObjectInstance[] | undefined> {
+    // Кавычки нужны для generic-типов: в их имени есть пробелы.
+    const command = `dumpheap -type "${typeName.replaceAll('"', '')}"`;
+    const output = await this.runSosCommand(dotnetPath, dumpFile, command);
+    return output === undefined ? undefined : parseDumpHeapInstances(output);
+  }
+
+  /** Поля объекта: `dumpobj`. */
+  private async inspectDumpObject(
+    dotnetPath: string,
+    dumpFile: string,
+    address: string,
+  ): Promise<DumpObjectDetails | undefined> {
+    if (!isObjectAddress(address)) {
+      return undefined;
+    }
+
+    const output = await this.runSosCommand(dotnetPath, dumpFile, `dumpobj ${address}`);
+    return output === undefined ? undefined : parseDumpObj(output, address);
+  }
+
+  /** Пути до GC-корней: `gcroot`. */
+  private async findDumpGcRoots(
+    dotnetPath: string,
+    dumpFile: string,
+    address: string,
+  ): Promise<DumpGcRoot[] | undefined> {
+    if (!isObjectAddress(address)) {
+      return undefined;
+    }
+
+    const output = await this.runSosCommand(dotnetPath, dumpFile, `gcroot ${address}`);
+    return output === undefined ? undefined : parseGcRoot(output);
   }
 
   /**
@@ -797,7 +889,7 @@ export class ProfilingTools implements vscode.Disposable {
     );
   }
 
-  /** Дампы и снимки памяти в каталоге результатов: для панели «Дампы». */
+  /** Дампы памяти в каталоге результатов: для панели «Дампы». */
   async listDumps(outputDirectory: string): Promise<DumpFileInfo[]> {
     // Каталог не создаём: панель открывается при активации и не должна оставлять следов.
     const directory = outputDirectory.length === 0
@@ -1083,6 +1175,11 @@ export class ProfilingTools implements vscode.Disposable {
     this.logger.info(translate('Profiling output directory: {0}', directory));
     return directory;
   }
+}
+
+/** Адрес объекта из вывода SOS: только шестнадцатеричные цифры и обратные кавычки. */
+function isObjectAddress(value: string): boolean {
+  return /^[0-9a-fA-F`]{6,}$/.test(value);
 }
 
 /** Папка проекта: в неё по умолчанию складываются результаты. */

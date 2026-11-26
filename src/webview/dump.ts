@@ -12,10 +12,14 @@ import {
 } from '../core/dumpWebviewStrings.ts';
 import { formatBytes } from '../core/formatting.ts';
 import { configureLocale, formatTemplate, localeTag } from '../core/locale.ts';
+import { baseName } from '../core/paths.ts';
 import type {
   DumpComparison,
   DumpExceptionInfo,
   DumpFinding,
+  DumpGcRoot,
+  DumpObjectDetails,
+  DumpObjectInstance,
   DumpReport,
   DumpReportSection,
   DumpSectionBlock,
@@ -32,16 +36,32 @@ import './dump.css';
 type Metric = 'size' | 'count';
 
 interface IncomingMessage {
-  type: 'report' | 'comparison';
+  type: 'report' | 'comparison' | 'instances' | 'object' | 'roots' | 'inspectorLoading' | 'inspectorError';
   report?: DumpReport;
   comparison?: DumpComparison;
   strings?: DumpWebviewStrings;
   locale?: string;
+  /** Разрешён ли переход от типа к объектам (только для полных дампов). */
+  canDrilldown?: boolean;
+  canOpenTerminal?: boolean;
+  /** Разрешено ли снять полный дамп из отчёта GCDump. */
+  canTakeDump?: boolean;
+  typeName?: string;
+  instances?: DumpObjectInstance[];
+  details?: DumpObjectDetails;
+  address?: string;
+  roots?: DumpGcRoot[];
+  message?: string;
 }
 
 type OutgoingMessage =
   | { type: 'ready' }
   | { type: 'openText' }
+  | { type: 'openTerminal' }
+  | { type: 'takeDump' }
+  | { type: 'inspectType'; typeName: string }
+  | { type: 'inspectObject'; address: string }
+  | { type: 'gcRoots'; address: string }
   | { type: 'problem'; message: string };
 
 interface VsCodeApi {
@@ -68,40 +88,127 @@ const EXCEPTION_PAGE_SIZE = 5;
 let report: DumpReport | undefined;
 let comparison: DumpComparison | undefined;
 let strings: DumpWebviewStrings = DEFAULT_DUMP_WEBVIEW_STRINGS;
+/** Переход к объектам возможен только для полного дампа: у GCDump только типы. */
+let canDrilldown = false;
+let canOpenTerminal = false;
+let canTakeDump = false;
 
 /** Свёрнутые разделы: состояние переживает перерисовку панели. */
 const collapsedPanels = new Set<string>();
 
+/** Один экран инспектора: список объектов, поля объекта или пути до корней. */
+type InspectorView =
+  | { kind: 'instances'; typeName: string; instances: DumpObjectInstance[] }
+  | { kind: 'object'; details: DumpObjectDetails }
+  | { kind: 'roots'; address: string; roots: DumpGcRoot[] };
+
+/** Состояние выдвижной панели инспектора. */
+const inspector = {
+  visible: false,
+  loading: false,
+  error: undefined as string | undefined,
+  stack: [] as InspectorView[],
+};
+
+/** Панель инспектора живёт рядом с отчётом и не перерисовывается вместе с ним. */
+const inspectorPanel = document.createElement('aside');
+inspectorPanel.id = 'inspector';
+inspectorPanel.hidden = true;
+document.body.append(inspectorPanel);
+
 window.addEventListener('message', event => {
   const message = event.data as IncomingMessage;
-  if (message.type !== 'report' && message.type !== 'comparison') {
-    return;
-  }
+  switch (message.type) {
+    case 'report':
+      report = message.report;
+      comparison = undefined;
+      canDrilldown = message.canDrilldown === true;
+      canOpenTerminal = message.canOpenTerminal === true;
+      canTakeDump = message.canTakeDump === true;
+      applyStrings(message);
+      try {
+        renderReport();
+      } catch (error) {
+        postProblem(error instanceof Error ? error.message : String(error));
+      }
 
-  if (message.type === 'comparison') {
-    comparison = message.comparison;
-    report = undefined;
-  } else {
-    report = message.report;
-    comparison = undefined;
-  }
+      return;
 
+    case 'comparison':
+      comparison = message.comparison;
+      report = undefined;
+      canDrilldown = false;
+      canOpenTerminal = false;
+      canTakeDump = false;
+      applyStrings(message);
+      try {
+        renderReport();
+      } catch (error) {
+        postProblem(error instanceof Error ? error.message : String(error));
+      }
+
+      return;
+
+    case 'inspectorLoading':
+      inspector.loading = true;
+      inspector.error = undefined;
+      renderInspector();
+      return;
+
+    case 'instances':
+      inspector.visible = true;
+      inspector.loading = false;
+      inspector.error = undefined;
+      inspector.stack = [{
+        kind: 'instances',
+        typeName: message.typeName ?? '',
+        instances: message.instances ?? [],
+      }];
+      renderInspector();
+      return;
+
+    case 'object':
+      if (message.details !== undefined) {
+        inspector.visible = true;
+        inspector.loading = false;
+        inspector.error = undefined;
+        inspector.stack.push({ kind: 'object', details: message.details });
+        renderInspector();
+      }
+
+      return;
+
+    case 'roots':
+      inspector.visible = true;
+      inspector.loading = false;
+      inspector.error = undefined;
+      inspector.stack.push({ kind: 'roots', address: message.address ?? '', roots: message.roots ?? [] });
+      renderInspector();
+      return;
+
+    case 'inspectorError':
+      inspector.loading = false;
+      inspector.error = message.message ?? strings.inspectFailed;
+      renderInspector();
+      return;
+
+    default:
+      return;
+  }
+});
+
+/** Применяет язык и тексты, пришедшие вместе с данными. */
+function applyStrings(message: IncomingMessage): void {
   strings = message.strings ?? strings;
   if (message.locale !== undefined) {
     configureLocale(message.locale);
   }
-
-  try {
-    render();
-  } catch (error) {
-    postProblem(error instanceof Error ? error.message : String(error));
-  }
-});
+}
 
 vscode.postMessage({ type: 'ready' });
 
 /** Перерисовывает панель целиком: данных немного, это проще точечных обновлений. */
-function render(): void {
+function renderReport(): void {
   if (comparison !== undefined) {
     renderComparison(comparison);
     return;
@@ -153,7 +260,24 @@ function renderHeader(current: DumpReport): HTMLElement {
   openText.type = 'button';
   openText.addEventListener('click', () => vscode.postMessage({ type: 'openText' }));
 
-  header.append(text, openText);
+  const actions = el('div', 'toolbar-actions');
+  if (canTakeDump) {
+    const dump = el('button', 'secondary', strings.takeDump);
+    dump.type = 'button';
+    dump.title = strings.takeDump;
+    dump.addEventListener('click', () => vscode.postMessage({ type: 'takeDump' }));
+    actions.append(dump);
+  }
+
+  if (canOpenTerminal) {
+    const terminal = el('button', 'secondary', strings.inspectOpenTerminal);
+    terminal.type = 'button';
+    terminal.addEventListener('click', () => vscode.postMessage({ type: 'openTerminal' }));
+    actions.append(terminal);
+  }
+
+  actions.append(openText);
+  header.append(text, actions);
   return header;
 }
 
@@ -410,8 +534,7 @@ function renderTableRow(row: TableRow, showSize: boolean): HTMLTableRowElement {
   const tr = el('tr');
 
   const typeCell = el('td', 'type-cell');
-  const typeName = el('bdi', undefined, row.typeName);
-  typeCell.append(typeName);
+  typeCell.append(renderTypeValue(row.typeName));
   typeCell.title = row.typeName;
   tr.append(typeCell);
 
@@ -422,6 +545,22 @@ function renderTableRow(row: TableRow, showSize: boolean): HTMLTableRowElement {
 
   tr.append(renderShareCell(row.share));
   return tr;
+}
+
+/**
+ * Имя типа: у полного дампа это кнопка, которая показывает объекты этого типа.
+ * У снимка GCDump адресов объектов нет, поэтому остаётся обычный текст.
+ */
+function renderTypeValue(name: string): HTMLElement {
+  if (!canDrilldown || name.length === 0) {
+    return el('bdi', undefined, name);
+  }
+
+  const button = el('button', 'link', name);
+  button.type = 'button';
+  button.title = name;
+  button.addEventListener('click', () => requestTypeInstances(name));
+  return button;
 }
 
 /** Ячейка доли: тонкая полоса и процент. */
@@ -703,7 +842,12 @@ function renderDetailCell(column: DumpTableColumn, value: string | number): HTML
 
   if (column.wide === true) {
     const cell = el('td', 'type-cell');
-    cell.append(el('bdi', undefined, text));
+    if (column.drilldown === true && typeof value === 'string' && value.length > 0) {
+      cell.append(renderTypeValue(value));
+    } else {
+      cell.append(el('bdi', undefined, text));
+    }
+
     cell.title = text;
     return cell;
   }
@@ -1284,6 +1428,272 @@ function renderComparisonDetails(current: DumpComparison): HTMLElement {
   return section;
 }
 
+/** Кнопка-ссылка в стиле VS Code: используется для типов, адресов и полей-ссылок. */
+function linkButton(text: string, onClick: () => void): HTMLButtonElement {
+  const button = el('button', 'link', text);
+  button.type = 'button';
+  button.title = text;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+/** Запрашивает объекты типа; ответ придёт сообщением `instances`. */
+function requestTypeInstances(typeName: string): void {
+  inspector.visible = true;
+  inspector.loading = true;
+  inspector.error = undefined;
+  inspector.stack = [];
+  renderInspector();
+  vscode.postMessage({ type: 'inspectType', typeName });
+}
+
+/** Переходит к полям объекта; ответ придёт сообщением `object`. */
+function drillIntoObject(address: string): void {
+  inspector.visible = true;
+  inspector.loading = true;
+  inspector.error = undefined;
+  renderInspector();
+  vscode.postMessage({ type: 'inspectObject', address });
+}
+
+/** Запрашивает пути до GC-корней; ответ придёт сообщением `roots`. */
+function requestRoots(address: string): void {
+  inspector.visible = true;
+  inspector.loading = true;
+  inspector.error = undefined;
+  renderInspector();
+  vscode.postMessage({ type: 'gcRoots', address });
+}
+
+/** Закрывает инспектор и забывает цепочку переходов. */
+function closeInspector(): void {
+  inspector.visible = false;
+  inspector.loading = false;
+  inspector.error = undefined;
+  inspector.stack = [];
+  renderInspector();
+}
+
+/** Возвращает на предыдущий экран инспектора. */
+function goBackInspector(): void {
+  inspector.error = undefined;
+  inspector.loading = false;
+  if (inspector.stack.length <= 1) {
+    closeInspector();
+    return;
+  }
+
+  inspector.stack.pop();
+  renderInspector();
+}
+
+/** Перерисовывает только инспектор: отчёт остаётся на месте. */
+function renderInspector(): void {
+  inspectorPanel.hidden = !inspector.visible;
+  inspectorPanel.textContent = '';
+  if (!inspector.visible) {
+    return;
+  }
+
+  const head = el('div', 'inspector-head');
+  head.append(el('div', 'inspector-title', strings.inspectTitle));
+
+  const actions = el('div', 'inspector-actions');
+  if (inspector.stack.length > 0) {
+    const back = el('button', 'secondary', strings.inspectBack);
+    back.type = 'button';
+    back.addEventListener('click', goBackInspector);
+    actions.append(back);
+  }
+
+  const close = el('button', 'secondary', strings.inspectClose);
+  close.type = 'button';
+  close.addEventListener('click', closeInspector);
+  actions.append(close);
+  head.append(actions);
+
+  const body = el('div', 'inspector-body');
+  if (inspector.loading) {
+    body.append(el('p', 'inspector-note', strings.inspectLoading));
+  } else if (inspector.error !== undefined) {
+    body.append(el('p', 'inspector-error', inspector.error));
+  } else {
+    const view = inspector.stack.at(-1);
+    body.append(view === undefined ? el('p', 'inspector-note', strings.inspectLoading) : renderInspectorView(view));
+  }
+
+  inspectorPanel.append(head, body);
+}
+
+function renderInspectorView(view: InspectorView): HTMLElement {
+  switch (view.kind) {
+    case 'instances':
+      return renderInstancesView(view);
+    case 'object':
+      return renderObjectView(view.details);
+    case 'roots':
+      return renderRootsView(view);
+  }
+}
+
+function renderInstancesView(view: Extract<InspectorView, { kind: 'instances' }>): HTMLElement {
+  const wrapper = el('div', 'inspector-section');
+  wrapper.append(el('h3', 'inspector-subhead', view.typeName.length > 0 ? view.typeName : strings.inspectInstances));
+  if (view.instances.length === 0) {
+    wrapper.append(el('p', 'empty', strings.inspectNoInstances));
+    return wrapper;
+  }
+
+  const table = el('table', 'grid inspector-table');
+  const thead = el('thead');
+  const headRow = el('tr');
+  headRow.append(
+    el('th', undefined, strings.inspectAddress),
+    el('th', undefined, strings.inspectMethodTable),
+    el('th', 'num', strings.size),
+  );
+  thead.append(headRow);
+
+  // Большие типы вроде System.String могут занимать тысячи строк: список ограничен,
+  // а полный перечень всегда доступен в интерактивном терминале.
+  const shown = view.instances.slice(0, 1000);
+  const tbody = el('tbody');
+  for (const instance of shown) {
+    const row = el('tr');
+    const addressCell = el('td');
+    addressCell.append(linkButton(instance.address, () => drillIntoObject(instance.address)));
+    row.append(
+      addressCell,
+      el('td', 'mono', instance.methodTable),
+      el('td', 'num', formatBytes(instance.size)),
+    );
+    tbody.append(row);
+  }
+
+  table.append(thead, tbody);
+  wrapper.append(table);
+  if (view.instances.length > shown.length) {
+    wrapper.append(el('p', 'note', formatTemplate(strings.inspectTooMany, shown.length)));
+  }
+
+  return wrapper;
+}
+
+function renderObjectView(details: DumpObjectDetails): HTMLElement {
+  const wrapper = el('div', 'inspector-section');
+  wrapper.append(el('h3', 'inspector-subhead', details.name ?? strings.inspectObject));
+
+  const meta = el('div', 'inspector-meta');
+  if (details.address.length > 0) {
+    meta.append(metaRow(strings.inspectAddress, details.address));
+  }
+
+  if (details.methodTable !== undefined) {
+    meta.append(metaRow(strings.inspectMethodTable, details.methodTable));
+  }
+
+  if (details.size !== undefined) {
+    meta.append(metaRow(strings.size, formatBytes(details.size)));
+  }
+
+  if (meta.childElementCount > 0) {
+    wrapper.append(meta);
+  }
+
+  if (details.address.length > 0) {
+    const toolbar = el('div', 'inspector-toolbar');
+    const roots = el('button', 'secondary', strings.inspectGcRoots);
+    roots.type = 'button';
+    roots.addEventListener('click', () => requestRoots(details.address));
+    toolbar.append(roots);
+    wrapper.append(toolbar);
+  }
+
+  wrapper.append(details.fields.length === 0
+    ? el('p', 'empty', strings.inspectNoFields)
+    : renderFields(details.fields));
+  return wrapper;
+}
+
+function metaRow(label: string, value: string): HTMLElement {
+  const row = el('div', 'inspector-meta-row');
+  row.append(
+    el('span', 'inspector-meta-label', label),
+    el('code', 'inspector-meta-value', value),
+  );
+  return row;
+}
+
+function renderFields(fields: DumpObjectDetails['fields']): HTMLElement {
+  const table = el('table', 'grid inspector-table');
+  const thead = el('thead');
+  const headRow = el('tr');
+  headRow.append(
+    el('th', undefined, strings.inspectField),
+    el('th', undefined, strings.type),
+    el('th', undefined, strings.inspectOffset),
+    el('th', undefined, strings.inspectValue),
+  );
+  thead.append(headRow);
+
+  const tbody = el('tbody');
+  for (const field of fields) {
+    const row = el('tr');
+    const nameCell = el('td', 'type-cell');
+    nameCell.append(el('bdi', undefined, field.name));
+    if (field.static === true) {
+      nameCell.append(el('span', 'badge', strings.inspectStatic));
+    }
+
+    const valueCell = el('td');
+    if (field.primitive) {
+      valueCell.append(el('code', 'field-value', field.value ?? '—'));
+    } else if (field.address !== undefined) {
+      valueCell.append(linkButton(field.address, () => drillIntoObject(field.address as string)));
+    } else {
+      valueCell.append(el('span', 'muted', '—'));
+    }
+
+    row.append(
+      nameCell,
+      el('td', 'mono', field.type),
+      el('td', 'mono', field.offset ?? '—'),
+      valueCell,
+    );
+    tbody.append(row);
+  }
+
+  table.append(thead, tbody);
+  return table;
+}
+
+function renderRootsView(view: Extract<InspectorView, { kind: 'roots' }>): HTMLElement {
+  const wrapper = el('div', 'inspector-section');
+  wrapper.append(el('h3', 'inspector-subhead', strings.inspectRoots));
+  if (view.address.length > 0) {
+    wrapper.append(metaRow(strings.inspectAddress, view.address));
+  }
+
+  if (view.roots.length === 0) {
+    wrapper.append(el('p', 'empty', strings.inspectNoRoots));
+    return wrapper;
+  }
+
+  for (const root of view.roots) {
+    const block = el('div', 'gc-root');
+    block.append(el('div', 'gc-root-kind', root.kind.length > 0 ? root.kind : strings.inspectRoot));
+    const list = el('ol', 'gc-root-path');
+    for (const step of root.path) {
+      list.append(el('li', 'mono', step));
+    }
+
+    block.append(list);
+    wrapper.append(block);
+  }
+
+  return wrapper;
+}
+
 /** Широкая полоса заполнения: доля занятого от общего. */
 function renderMeter(fraction: number, titleText: string): HTMLElement {
   const meter = el('div', 'meter wide-meter');
@@ -1292,12 +1702,6 @@ function renderMeter(fraction: number, titleText: string): HTMLElement {
   meter.title = titleText;
   meter.append(fill);
   return meter;
-}
-
-/** Имя файла без каталогов: путь может быть длинным. */
-function baseName(file: string): string {
-  const parts = file.split(/[\\/]/);
-  return parts[parts.length - 1] ?? file;
 }
 
 /** Точное количество с разделителями разрядов: в дампе важна цифра, а не «1.28 млн». */

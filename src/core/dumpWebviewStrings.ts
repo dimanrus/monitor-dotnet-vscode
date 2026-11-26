@@ -84,6 +84,29 @@ export interface DumpWebviewStrings {
   exceptionMessage: string;
   exceptionHresult: string;
   exceptionStack: string;
+  inspectTitle: string;
+  inspectInstances: string;
+  inspectObject: string;
+  inspectAddress: string;
+  inspectMethodTable: string;
+  inspectFields: string;
+  inspectField: string;
+  inspectValue: string;
+  inspectOffset: string;
+  inspectStatic: string;
+  inspectNoInstances: string;
+  inspectTooMany: string;
+  inspectNoFields: string;
+  inspectGcRoots: string;
+  inspectRoots: string;
+  inspectRoot: string;
+  inspectNoRoots: string;
+  inspectLoading: string;
+  inspectFailed: string;
+  inspectClose: string;
+  inspectBack: string;
+  inspectOpenTerminal: string;
+  takeDump: string;
   openTextReport: string;
   truncated: string;
 }
@@ -166,6 +189,29 @@ export const DUMP_WEBVIEW_SOURCE_STRINGS: Record<keyof DumpWebviewStrings, strin
   exceptionMessage: 'Message',
   exceptionHresult: 'HRESULT',
   exceptionStack: 'Stack',
+  inspectTitle: 'Object inspector',
+  inspectInstances: 'Objects of this type',
+  inspectObject: 'Object',
+  inspectAddress: 'Address',
+  inspectMethodTable: 'Method table',
+  inspectFields: 'Fields',
+  inspectField: 'Field',
+  inspectValue: 'Value',
+  inspectOffset: 'Offset',
+  inspectStatic: 'static',
+  inspectNoInstances: 'No objects of this type in the dump.',
+  inspectTooMany: 'Showing the first {0} objects. Use dotnet-dump analyze to list the rest.',
+  inspectNoFields: 'No instance fields.',
+  inspectGcRoots: 'GC roots',
+  inspectRoots: 'Keep-alive paths',
+  inspectRoot: 'Root',
+  inspectNoRoots: 'No GC roots found: the object may be unreachable.',
+  inspectLoading: 'Reading the dump…',
+  inspectFailed: 'Could not read the dump. See the notification for details.',
+  inspectClose: 'Close',
+  inspectBack: 'Back',
+  inspectOpenTerminal: 'Open in dotnet-dump analyze',
+  takeDump: 'Take memory dump',
   openTextReport: 'Open text report',
   truncated: 'Output shortened. Open the text report to see everything.',
 };

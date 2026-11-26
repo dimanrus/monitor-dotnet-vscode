@@ -19,11 +19,14 @@ import {
   formatTimestamp,
   normalizeSosCommand,
   parseAsyncStatistics,
+  parseDumpHeapInstances,
+  parseDumpObj,
   parseExceptionInfo,
   parseFinalizableReady,
   parseFinalizableSummary,
   parseFinalizableTypes,
   parseGcHeapSummary,
+  parseGcRoot,
   parseGcSegments,
   parseHeapStatistics,
   parseHeapTypeMap,
@@ -728,4 +731,92 @@ test('сравнение дампов строит наблюдения и те�
   assert.match(report, /after\.dmp/);
   assert.match(report, /Type changes:/);
   assert.match(report, /System\.Byte\[\]/);
+});
+
+test('объекты типа разбираются из dumpheap -type', () => {
+  const output = [
+    ' Address               MT           Size',
+    '000001e2a1b2c3d0 00007ff8a2b3c4d0       24     ',
+    '000001e2a1b2c4e0 00007ff8a2b3c4d0       24     ',
+    '',
+    'Statistics:',
+    '              MT    Count    TotalSize Class Name',
+    '00007ff8a2b3c4d0        2           48 System.String',
+    'Total 2 objects',
+  ].join('\n');
+
+  assert.deepEqual(parseDumpHeapInstances(output), [
+    { address: '000001e2a1b2c3d0', methodTable: '00007ff8a2b3c4d0', size: 24 },
+    { address: '000001e2a1b2c4e0', methodTable: '00007ff8a2b3c4d0', size: 24 },
+  ]);
+  // Строки статистики не должны попасть в список экземпляров.
+  assert.deepEqual(parseDumpHeapInstances('Total 0 objects'), []);
+});
+
+test('поля объекта разбираются из dumpobj, примитивы показываются значением', () => {
+  const output = [
+    'Name:        System.Collections.Generic.List`1[[System.String, System.Private.CoreLib]]',
+    'MethodTable: 00007ff8a2b3c4d0',
+    'EEClass:     00007ff8a2b3c4e0',
+    'Size:        32(0x20) bytes',
+    'Fields:',
+    '              MT    Field   Offset                 Type VT     Attr            Value Name',
+    '00007ff8a2b00000  4000001        8       System.Object[]  0 instance 000001e2a1b2c3d0 _items',
+    '00007ff8a2b00010  4000002       10         System.Int32  1 instance                3 _size',
+    '00007ff8a2b00000  4000003       14        System.Boolean  1 instance             true _dirty',
+    '0000000000000000  4000004       18        System.Object  0   static 000001e2a1b2c400 s_empty',
+  ].join('\n');
+
+  const details = parseDumpObj(output, '000001e2a1b2c000');
+  assert.equal(details?.address, '000001e2a1b2c000');
+  assert.equal(details?.name, 'System.Collections.Generic.List`1[[System.String, System.Private.CoreLib]]');
+  assert.equal(details?.methodTable, '00007ff8a2b3c4d0');
+  assert.equal(details?.size, 32);
+
+  const items = details?.fields.find(field => field.name === '_items');
+  assert.deepEqual(items, {
+    name: '_items',
+    type: 'System.Object[]',
+    offset: '8',
+    value: '000001e2a1b2c3d0',
+    primitive: false,
+    address: '000001e2a1b2c3d0',
+  });
+
+  const size = details?.fields.find(field => field.name === '_size');
+  assert.equal(size?.primitive, true);
+  assert.equal(size?.value, '3');
+  assert.equal(size?.address, undefined);
+
+  assert.equal(details?.fields.find(field => field.name === '_dirty')?.value, 'true');
+  const empty = details?.fields.find(field => field.name === 's_empty');
+  assert.equal(empty?.static, true);
+  assert.equal(empty?.address, '000001e2a1b2c400');
+  assert.equal(parseDumpObj('ничего'), undefined);
+});
+
+test('пути до GC-корней разбираются из gcroot', () => {
+  const output = [
+    'HandleTable:',
+    '    000001d8f2a3b4c0 (pinned handle)',
+    '    -> 000001d8f2a3b4d0 System.Object[]',
+    '    -> 000001d8f2a3b4e0 System.String',
+    '',
+    'Thread 2a3c:',
+    '    00007ff8a2b3c4f0 System.Private.CoreLib!System.Threading.ExecutionContext',
+    '',
+    'Found 2 unique roots (run \'gcroot -all\' to see all roots).',
+  ].join('\n');
+
+  assert.deepEqual(parseGcRoot(output), [
+    {
+      kind: 'HandleTable',
+      path: ['000001d8f2a3b4c0 (pinned handle)', '000001d8f2a3b4d0 System.Object[]', '000001d8f2a3b4e0 System.String'],
+    },
+    {
+      kind: 'Thread 2a3c',
+      path: ['00007ff8a2b3c4f0 System.Private.CoreLib!System.Threading.ExecutionContext'],
+    },
+  ]);
+  assert.deepEqual(parseGcRoot('Found 0 unique roots.'), []);
 });

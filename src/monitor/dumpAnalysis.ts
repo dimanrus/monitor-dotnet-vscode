@@ -305,6 +305,8 @@ export interface DumpTableColumn {
   format?: 'bytes' | 'count';
   /** Широкая колонка с именем типа. */
   wide?: boolean;
+  /** Значение — имя типа, по которому можно показать объекты в дампе. */
+  drilldown?: boolean;
 }
 
 /** Строка таблицы интерактивного блока. */
@@ -398,6 +400,46 @@ export interface DumpFinalizableType {
   typeName?: string;
   count: number;
   size: number;
+}
+
+/** Объект из `dumpheap -type`: адрес, метод-таблица и размер. */
+export interface DumpObjectInstance {
+  address: string;
+  methodTable: string;
+  size: number;
+}
+
+/** Поле объекта из `dumpobj`. */
+export interface DumpObjectField {
+  name: string;
+  type: string;
+  /** Смещение в объекте, как его печатает SOS. */
+  offset?: string;
+  /** Значение примитива или адрес ссылки, как его печатает SOS. */
+  value?: string;
+  /** Поле хранит значение, а не ссылку: дальше разбирать нечего. */
+  primitive: boolean;
+  /** Адрес объекта, на который ссылается поле. */
+  address?: string;
+  /** Статическое поле. */
+  static?: boolean;
+}
+
+/** Разобранный объект из `dumpobj`. */
+export interface DumpObjectDetails {
+  address: string;
+  name?: string;
+  methodTable?: string;
+  size?: number;
+  fields: DumpObjectField[];
+}
+
+/** Один путь до корня из `gcroot`. */
+export interface DumpGcRoot {
+  /** Вид корня: `HandleTable`, `Thread 1234`, `Static var` и т.п. */
+  kind: string;
+  /** Цепочка ссылок от корня до объекта. */
+  path: string[];
 }
 
 /** Сегмент полосы состава. */
@@ -1082,6 +1124,145 @@ function isOverallHeapCommand(command: string): boolean {
 }
 
 /**
+ * Объекты одного типа из `dumpheap -type`.
+ * SOS печатает таблицу «адрес — MT — размер», а затем статистику;
+ * строки статистики имеют другой формат и в список не попадают.
+ */
+export function parseDumpHeapInstances(output: string): DumpObjectInstance[] {
+  const instances: DumpObjectInstance[] = [];
+  let inStatistics = false;
+
+  for (const line of output.split(/\r?\n/)) {
+    if (/^\s*Statistics:/i.test(line)) {
+      inStatistics = true;
+      continue;
+    }
+
+    if (/^\s*Total\s+[\d,]+\s+objects?/i.test(line)) {
+      break;
+    }
+
+    if (inStatistics || /^\s*Address\s+MT\s+Size/i.test(line)) {
+      continue;
+    }
+
+    const match = /^\s*([0-9a-fA-F`]{8,})\s+([0-9a-fA-F`]{8,})\s+(\d+)\s*$/.exec(line);
+    if (match === null) {
+      continue;
+    }
+
+    instances.push({ address: match[1], methodTable: match[2], size: Number(match[3]) });
+  }
+
+  return instances;
+}
+
+/**
+ * Разбирает вывод `dumpobj`: имя типа, метод-таблицу, размер и поля.
+ *
+ * У полей печатается колонка VT: `1` — значение (примитив, enum, struct),
+ * `0` — ссылка. Поэтому значение-адрес показывается ссылкой, а примитив —
+ * готовым текстом (`4`, `true`, символ и т.п.), без дополнительных команд.
+ */
+export function parseDumpObj(output: string, address = ''): DumpObjectDetails | undefined {
+  const name = /^\s*Name:\s*(.+)$/m.exec(output)?.[1].trim();
+  const methodTable = /^\s*MethodTable:\s*(\S+)/m.exec(output)?.[1];
+  const sizeText = /^\s*Size:\s*(\d+)/m.exec(output)?.[1];
+  const fields: DumpObjectField[] = [];
+
+  for (const line of output.split(/\r?\n/)) {
+    if (/^\s*Fields:/i.test(line) || /^\s*MT\s+Field\s+Offset/i.test(line)) {
+      continue;
+    }
+
+    // MT, Field, Offset, Type, VT, Attr, Value, Name. Имя типа может содержать
+    // пробелы внутри generic-аргументов, поэтому тип захватывается жадно до VT.
+    const match = /^\s*([0-9a-fA-F`]{8,})\s+([0-9a-fA-F`]+)\s+([0-9a-fA-F`]+)\s+(.+?)\s+([0-9])\s+(instance|static)\s*(.*)$/.exec(line);
+    if (match === null) {
+      continue;
+    }
+
+    const tail = match[7].trim();
+    const parts = tail.split(/\s+/).filter(part => part.length > 0);
+    const fieldName = parts.pop();
+    if (fieldName === undefined) {
+      continue;
+    }
+
+    const rawValue = parts.join(' ');
+    const reference = match[5] === '0' && /^[0-9a-fA-F`]{8,}$/.test(rawValue) ? rawValue : undefined;
+    fields.push({
+      name: fieldName,
+      type: match[4].trim(),
+      offset: match[3],
+      ...(rawValue.length === 0 ? {} : { value: rawValue }),
+      primitive: reference === undefined,
+      ...(reference === undefined ? {} : { address: reference }),
+      ...(match[6] === 'static' ? { static: true } : {}),
+    });
+  }
+
+  if (name === undefined && fields.length === 0) {
+    return undefined;
+  }
+
+  return {
+    address,
+    ...(name === undefined ? {} : { name }),
+    ...(methodTable === undefined ? {} : { methodTable }),
+    ...(sizeText === undefined ? {} : { size: Number(sizeText) }),
+    fields,
+  };
+}
+
+/**
+ * Пути до GC-корней из `gcroot`.
+ * Каждый блок начинается строкой-заголовком (`HandleTable:`, `Thread 1234:`),
+ * а цепочка ссылок печатается строками с `->`.
+ */
+export function parseGcRoot(output: string): DumpGcRoot[] {
+  const roots: DumpGcRoot[] = [];
+  let current: DumpGcRoot | undefined;
+
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.replace(/\s+$/, '');
+    if (/^\s*Found\s+[\d,]+\s+unique\s+root/i.test(line)) {
+      break;
+    }
+
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      current = undefined;
+      continue;
+    }
+
+    const arrow = /^->\s*(.*)$/.exec(trimmed);
+    if (arrow !== null) {
+      if (current === undefined) {
+        current = { kind: '', path: [] };
+        roots.push(current);
+      }
+
+      current.path.push(arrow[1].trim());
+      continue;
+    }
+
+    // Заголовок корня: строка, заканчивающаяся двоеточием, но не адрес с пометкой.
+    if (/:\s*$/.test(trimmed) && !/^[0-9a-fA-F`]+\s+\(/.test(trimmed)) {
+      current = { kind: trimmed.replace(/:\s*$/, '').trim(), path: [] };
+      roots.push(current);
+      continue;
+    }
+
+    if (current !== undefined && /^\s+/.test(line)) {
+      current.path.push(trimmed);
+    }
+  }
+
+  return roots.filter(root => root.kind.length > 0 || root.path.length > 0);
+}
+
+/**
  * Наблюдения по разобранным данным: что в дампе выглядит подозрительно.
  * Пороги намеренно простые — это подсказки, а не приговор.
  */
@@ -1331,7 +1512,7 @@ function blocksForCommands(
           blocks.push({
             kind: 'table',
             columns: [
-              { label: translate('Type'), wide: true },
+              { label: translate('Type'), wide: true, drilldown: true },
               { label: translate('Count'), numeric: true, format: 'count' },
               { label: translate('Size'), numeric: true, format: 'bytes' },
             ],
