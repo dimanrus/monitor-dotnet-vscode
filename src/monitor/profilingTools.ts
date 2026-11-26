@@ -938,7 +938,12 @@ export class ProfilingTools implements vscode.Disposable {
         const options = await this.memoryFileOptions(target);
         const analysis = analyzeGcdumpOutput(target, output, generatedAt, options);
         const textReport = formatGcdumpReport(target, output, generatedAt, options);
-        DumpAnalysisPanel.show(this.extensionUri, analysis.report, textReport, this.logger);
+        DumpAnalysisPanel.show(this.extensionUri, analysis.report, textReport, this.logger, {
+          // GCDump хранит только кучу: полный дамп даёт стеки, исключения и блокировки.
+          takeDump: async () => {
+            await vscode.commands.executeCommand('monitor-dotnet.collectMemoryDump');
+          },
+        });
       },
     );
   }

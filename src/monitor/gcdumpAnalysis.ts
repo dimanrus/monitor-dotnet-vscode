@@ -111,18 +111,27 @@ export function parseGcdumpReport(output: string): HeapStatSummary | undefined {
 
 /** Наблюдения по снимку памяти. */
 export function buildGcdumpFindings(heap: HeapStatSummary | undefined): DumpFinding[] {
+  // Снимок GCDump содержит только кучу: полезно сразу сказать, где искать остальное.
+  const heapOnly: DumpFinding = {
+    level: 'info',
+    title: translate('A GCDump contains the managed heap only'),
+    detail: translate(
+      'For thread stacks, exceptions, locks and the finalization queue, take a memory dump (.dmp) and choose the SOS analyses there.',
+    ),
+  };
+
   if (heap === undefined) {
     return [{
       level: 'warning',
       title: translate('The snapshot could not be parsed'),
       detail: translate('Check that dotnet-gcdump can read this file.'),
-    }];
+    }, heapOnly];
   }
 
   const findings: DumpFinding[] = [];
   const top = heap.entries[0];
   if (top === undefined || heap.totalSize <= 0) {
-    return findings;
+    return [heapOnly];
   }
 
   const share = (top.size / heap.totalSize) * 100;
@@ -139,6 +148,7 @@ export function buildGcdumpFindings(heap: HeapStatSummary | undefined): DumpFind
     });
   }
 
+  findings.push(heapOnly);
   return findings;
 }
 
