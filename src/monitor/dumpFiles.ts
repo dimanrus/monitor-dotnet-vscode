@@ -8,6 +8,7 @@
 
 import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import type { SnapshotFileInfo, SnapshotKind } from '../core/snapshotFiles.ts';
 
 /** Что лежит в файле: полный дамп процесса или снимок управляемой кучи. */
 export type MemoryFileKind = 'dump' | 'snapshot';
@@ -68,4 +69,43 @@ export async function listDumpFiles(directory: string): Promise<DumpFileInfo[]> 
 /** Снимки памяти `.gcdump` в каталоге: самые свежие первыми. */
 export async function listSnapshotFiles(directory: string): Promise<DumpFileInfo[]> {
   return (await listMemoryFiles(directory)).filter(file => file.kind === 'snapshot');
+}
+
+/** Расширения снимков и их вид: `.speedscope.json` длиннее, поэтому проверяется первым. */
+const SNAPSHOT_EXTENSIONS: ReadonlyArray<readonly [string, SnapshotKind]> = [
+  ['.speedscope.json', 'cpu'],
+  ['.gcdump', 'memory'],
+];
+
+/**
+ * Все снимки в каталоге: CPU-профили и снимки памяти.
+ * Нужны панели «Снимки»: она группирует их по виду и даёт сравнивать файлы одного типа.
+ */
+export async function listAllSnapshots(directory: string): Promise<SnapshotFileInfo[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return [];
+  }
+
+  const files: SnapshotFileInfo[] = [];
+  for (const entry of entries) {
+    const extension = SNAPSHOT_EXTENSIONS.find(([suffix]) => entry.toLowerCase().endsWith(suffix));
+    if (extension === undefined) {
+      continue;
+    }
+
+    const file = path.join(directory, entry);
+    try {
+      const info = await stat(file);
+      if (info.isFile()) {
+        files.push({ file, bytes: info.size, modifiedMs: info.mtimeMs, kind: extension[1] });
+      }
+    } catch {
+      // Файл исчез, пока читали каталог: пропускаем.
+    }
+  }
+
+  return files.sort((left, right) => right.modifiedMs - left.modifiedMs);
 }

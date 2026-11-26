@@ -12,7 +12,8 @@ import Module from 'node:module';
 import path from 'node:path';
 import { test } from 'node:test';
 import { build } from 'esbuild';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import {
   createVscodeStub,
   StubWebviewView,
@@ -81,12 +82,13 @@ test('активация регистрирует команды, панели �
 
   assert.doesNotThrow(() => activate(context));
 
-  // Панели: счётчики, окружение и дампы — деревья, графики — webview.
+  // Панели: счётчики, окружение, дампы и снимки — деревья, графики — webview.
   assert.deepEqual(registry.treeViews.sort(), [
     'monitor-dotnet.counters',
     'monitor-dotnet.dumps',
     'monitor-dotnet.environment',
     'monitor-dotnet.issues',
+    'monitor-dotnet.snapshots',
   ]);
   assert.ok(registry.webviewViews.has('monitor-dotnet.performance'), 'Панель графиков не зарегистрирована');
 
@@ -110,8 +112,15 @@ test('активация регистрирует команды, панели �
     'monitor-dotnet.compareDumps',
     'monitor-dotnet.refreshDumps',
     'monitor-dotnet.revealDump',
+    'monitor-dotnet.takeSnapshot',
+    'monitor-dotnet.takeCpuSnapshot',
+    'monitor-dotnet.openCpuSnapshot',
+    'monitor-dotnet.compareCpuSnapshots',
     'monitor-dotnet.analyzeMemorySnapshot',
     'monitor-dotnet.compareSnapshots',
+    'monitor-dotnet.compareSnapshotsOfKind',
+    'monitor-dotnet.refreshSnapshots',
+    'monitor-dotnet.revealSnapshot',
     'monitor-dotnet.convertTrace',
     'monitor-dotnet.traceTopMethods',
     'monitor-dotnet.addMonitorFilter',
@@ -260,4 +269,47 @@ test('при выключенном поиске дерево проблем о�
   const nodes = provider.getChildren() as Array<{ kind: string; label: string }>;
   assert.equal(nodes.length, 1);
   assert.equal(nodes[0].label, 'Issue detection is off');
+});
+
+test('панель снимков делит CPU-профили и снимки памяти на группы', async () => {
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'monitor-dotnet-snapshots-view-'));
+  const output = path.join(folder, '.monitor-dotnet');
+  await mkdir(output, { recursive: true });
+  await writeFile(path.join(output, 'cpu-1.speedscope.json'), 'cpu');
+  await writeFile(path.join(output, 'memory-1.gcdump'), 'memory');
+  await writeFile(path.join(output, 'dump-1.dmp'), 'dump');
+
+  const bundlePath = await buildExtension();
+  const { activate, registry } = loadExtension(bundlePath, { workspaceFolder: folder });
+  activate({ extensionPath: projectRoot, extensionUri: { fsPath: projectRoot }, subscriptions: [] });
+
+  interface SnapshotNode {
+    nodeType: string;
+    snapshotKind?: string;
+    file?: string;
+  }
+  interface SnapshotProvider {
+    getChildren(element?: SnapshotNode): SnapshotNode[];
+    getTreeItem(node: SnapshotNode): { contextValue?: string; command?: { command?: string } };
+  }
+
+  const provider = registry.treeProviders.get('monitor-dotnet.snapshots') as SnapshotProvider | undefined;
+  assert.ok(provider !== undefined, 'Провайдер снимков не зарегистрирован');
+
+  // Провайдер читает каталог асинхронно: даём загрузке завершиться.
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  const groups = provider.getChildren();
+  assert.deepEqual(groups.map(group => group.snapshotKind), ['cpu', 'memory']);
+  assert.equal(provider.getTreeItem(groups[0]).contextValue, 'cpuSnapshotGroup');
+
+  const cpuItems = provider.getChildren(groups[0]);
+  assert.deepEqual(cpuItems.map(item => item.file), [path.join(output, 'cpu-1.speedscope.json')]);
+  const cpuTreeItem = provider.getTreeItem(cpuItems[0]);
+  assert.equal(cpuTreeItem.contextValue, 'cpuSnapshot');
+  assert.equal(cpuTreeItem.command?.command, 'monitor-dotnet.openCpuSnapshot');
+
+  const memoryItems = provider.getChildren(groups[1]);
+  assert.deepEqual(memoryItems.map(item => item.file), [path.join(output, 'memory-1.gcdump')]);
+  assert.equal(provider.getTreeItem(memoryItems[0]).command?.command, 'monitor-dotnet.analyzeMemorySnapshot');
 });

@@ -1,8 +1,9 @@
 /**
- * Панель «Дампы»: файлы `.dmp` и снимки `.gcdump` из каталога результатов.
+ * Панель «Дампы»: файлы `.dmp` из каталога результатов.
  *
- * Клик по файлу открывает графический анализ, контекстное меню позволяет
- * сравнить его с другим файлом того же вида или показать в проводнике.
+ * Снимки памяти и CPU живут в отдельной панели «Снимки»: у них другие действия.
+ * Клик по дампу открывает графический анализ, контекстное меню позволяет
+ * сравнить его с другим дампом или показать файл в проводнике.
  */
 
 import path from 'node:path';
@@ -44,18 +45,17 @@ export class DumpsTreeProvider implements vscode.TreeDataProvider<DumpFileInfo>,
 
   getTreeItem(item: DumpFileInfo): vscode.TreeItem {
     const treeItem = new vscode.TreeItem(path.basename(item.file), vscode.TreeItemCollapsibleState.None);
-    const isSnapshot = item.kind === 'snapshot';
     treeItem.id = item.file;
     treeItem.resourceUri = vscode.Uri.file(item.file);
     treeItem.description = describeDump(item);
     treeItem.tooltip = new vscode.MarkdownString(
       `\`${item.file}\`\n\n${formatBytes(item.bytes)} · ${formatModified(item.modifiedMs)}`,
     );
-    treeItem.iconPath = new vscode.ThemeIcon(isSnapshot ? 'database' : 'file-binary');
-    treeItem.contextValue = isSnapshot ? 'snapshot' : 'dump';
+    treeItem.iconPath = new vscode.ThemeIcon('file-binary');
+    treeItem.contextValue = 'dump';
     treeItem.command = {
-      command: isSnapshot ? 'monitor-dotnet.analyzeMemorySnapshot' : 'monitor-dotnet.analyzeDumpFile',
-      title: isSnapshot ? translate('Analyse memory snapshot') : translate('Analyse dump'),
+      command: 'monitor-dotnet.analyzeDumpFile',
+      title: translate('Analyse dump'),
       arguments: [item],
     };
     return treeItem;

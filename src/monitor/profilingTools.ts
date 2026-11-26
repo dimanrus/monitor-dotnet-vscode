@@ -31,7 +31,8 @@ import {
   type DumpObjectInstance,
   type SosAnalysis,
 } from './dumpAnalysis.ts';
-import { listDumpFiles, listMemoryFiles, listSnapshotFiles, type DumpFileInfo } from './dumpFiles.ts';
+import { listAllSnapshots, listDumpFiles, listSnapshotFiles, type DumpFileInfo } from './dumpFiles.ts';
+import type { SnapshotFileInfo } from '../core/snapshotFiles.ts';
 import { compareCpuProfiles, parseSpeedscope, type CpuProfile } from '../core/cpuProfile.ts';
 import { analyzeGcdumpOutput, formatGcdumpReport } from './gcdumpAnalysis.ts';
 import { DumpAnalysisPanel, type DumpDrilldownHost } from '../views/dumpAnalysisPanel.ts';
@@ -1011,7 +1012,16 @@ export class ProfilingTools implements vscode.Disposable {
     const directory = outputDirectory.length === 0
       ? defaultOutputDirectory(currentWorkspaceFolder())
       : path.resolve(outputDirectory);
-    return listMemoryFiles(directory);
+    return listDumpFiles(directory);
+  }
+
+  /** Снимки CPU и памяти для панели «Снимки». */
+  async listSnapshots(outputDirectory: string): Promise<SnapshotFileInfo[]> {
+    // Каталог не создаём: панель открывается при активации и не должна оставлять следов.
+    const directory = outputDirectory.length === 0
+      ? defaultOutputDirectory(currentWorkspaceFolder())
+      : path.resolve(outputDirectory);
+    return listAllSnapshots(directory);
   }
 
   /** Время и размер файла дампа для заголовка отчёта. */

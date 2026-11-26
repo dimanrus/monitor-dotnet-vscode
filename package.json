@@ -47,6 +47,7 @@
     "onDebugResolve:clr",
     "onView:monitor-dotnet.performance",
     "onView:monitor-dotnet.dumps",
+    "onView:monitor-dotnet.snapshots",
     "onView:monitor-dotnet.counters",
     "onView:monitor-dotnet.environment",
     "onCommand:monitor-dotnet.startMonitoring",
@@ -76,6 +77,12 @@
           "name": "%view.dumps%",
           "icon": "resources/dump.svg",
           "contextualTitle": "%view.dumps.contextual%"
+        },
+        {
+          "id": "monitor-dotnet.snapshots",
+          "name": "%view.snapshots%",
+          "icon": "resources/snapshots.svg",
+          "contextualTitle": "%view.snapshots.contextual%"
         },
         {
           "id": "monitor-dotnet.issues",
@@ -141,6 +148,12 @@
         "icon": "$(database)"
       },
       {
+        "command": "monitor-dotnet.takeSnapshot",
+        "title": "%command.takeSnapshot.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(add)"
+      },
+      {
         "command": "monitor-dotnet.analyzeDumpFile",
         "title": "%command.analyzeDumpFile.title%",
         "category": "Monitor Dotnet",
@@ -159,8 +172,20 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "monitor-dotnet.refreshSnapshots",
+        "title": "%command.refreshSnapshots.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "monitor-dotnet.revealDump",
         "title": "%command.revealDump.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "monitor-dotnet.revealSnapshot",
+        "title": "%command.revealSnapshot.title%",
         "category": "Monitor Dotnet",
         "icon": "$(folder-opened)"
       },
@@ -254,6 +279,12 @@
         "icon": "$(diff)"
       },
       {
+        "command": "monitor-dotnet.compareSnapshotsOfKind",
+        "title": "%command.compareSnapshotsOfKind.title%",
+        "category": "Monitor Dotnet",
+        "icon": "$(diff)"
+      },
+      {
         "command": "monitor-dotnet.downloadSymbols",
         "title": "%command.downloadSymbols.title%",
         "category": "Monitor Dotnet",
@@ -304,44 +335,64 @@
           "group": "navigation@1"
         },
         {
-          "command": "monitor-dotnet.selectTarget",
-          "when": "view == monitor-dotnet.performance",
-          "group": "navigation@2"
-        },
-        {
           "command": "monitor-dotnet.stopMonitoring",
           "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
           "group": "navigation@1"
         },
         {
-          "command": "monitor-dotnet.collectCallStack",
-          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
-          "group": "monitoring@1"
+          "command": "monitor-dotnet.selectTarget",
+          "when": "view == monitor-dotnet.performance",
+          "group": "navigation@2"
         },
         {
-          "command": "monitor-dotnet.collectMemorySnapshot",
+          "command": "monitor-dotnet.collectCallStack",
           "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
-          "group": "monitoring@2"
+          "group": "1_monitoring@1"
+        },
+        {
+          "command": "monitor-dotnet.takeSnapshot",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
+          "group": "2_snapshot@1"
+        },
+        {
+          "command": "monitor-dotnet.collectMemoryDump",
+          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
+          "group": "2_snapshot@2"
         },
         {
           "command": "monitor-dotnet.startProfiling",
           "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring && !monitor-dotnet.isProfiling",
-          "group": "monitoring@3"
+          "group": "3_profiling@1"
         },
         {
           "command": "monitor-dotnet.stopProfiling",
           "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring && monitor-dotnet.isProfiling",
-          "group": "monitoring@3"
+          "group": "3_profiling@1"
+        },
+        {
+          "command": "monitor-dotnet.openSpeedscopeProfile",
+          "when": "view == monitor-dotnet.performance",
+          "group": "3_profiling@2"
+        },
+        {
+          "command": "monitor-dotnet.convertTrace",
+          "when": "view == monitor-dotnet.performance",
+          "group": "3_profiling@3"
+        },
+        {
+          "command": "monitor-dotnet.downloadSymbols",
+          "when": "view == monitor-dotnet.performance",
+          "group": "4_tools@1"
         },
         {
           "command": "monitor-dotnet.clearData",
           "when": "view == monitor-dotnet.performance",
-          "group": "monitoring@4"
+          "group": "5_data@1"
         },
         {
           "command": "monitor-dotnet.openSettings",
           "when": "view == monitor-dotnet.performance",
-          "group": "setup@1"
+          "group": "6_setup@1"
         },
         {
           "command": "monitor-dotnet.filterEnvironment",
@@ -354,44 +405,24 @@
           "group": "navigation@1"
         },
         {
-          "command": "monitor-dotnet.collectMemoryDump",
-          "when": "view == monitor-dotnet.performance && monitor-dotnet.isMonitoring",
-          "group": "monitoring@2"
-        },
-        {
-          "command": "monitor-dotnet.downloadSymbols",
-          "when": "view == monitor-dotnet.performance",
-          "group": "monitoring@6"
-        },
-        {
-          "command": "monitor-dotnet.openSpeedscopeProfile",
-          "when": "view == monitor-dotnet.performance",
-          "group": "monitoring@5"
-        },
-        {
-          "command": "monitor-dotnet.convertTrace",
-          "when": "view == monitor-dotnet.performance",
-          "group": "monitoring@8"
-        },
-        {
-          "command": "monitor-dotnet.traceTopMethods",
-          "when": "view == monitor-dotnet.performance",
-          "group": "monitoring@9"
-        },
-        {
           "command": "monitor-dotnet.compareDumps",
           "when": "view == monitor-dotnet.dumps",
           "group": "navigation@1"
         },
         {
-          "command": "monitor-dotnet.compareSnapshots",
+          "command": "monitor-dotnet.refreshDumps",
           "when": "view == monitor-dotnet.dumps",
           "group": "navigation@2"
         },
         {
-          "command": "monitor-dotnet.refreshDumps",
-          "when": "view == monitor-dotnet.dumps",
-          "group": "navigation@3"
+          "command": "monitor-dotnet.takeSnapshot",
+          "when": "view == monitor-dotnet.snapshots && monitor-dotnet.isMonitoring",
+          "group": "navigation@1"
+        },
+        {
+          "command": "monitor-dotnet.refreshSnapshots",
+          "when": "view == monitor-dotnet.snapshots",
+          "group": "navigation@2"
         }
       ],
       "explorer/context": [
@@ -401,8 +432,18 @@
           "group": "navigation@9"
         },
         {
+          "command": "monitor-dotnet.traceTopMethods",
+          "when": "resourceExtname == .nettrace",
+          "group": "navigation@9"
+        },
+        {
           "command": "monitor-dotnet.analyzeMemorySnapshot",
           "when": "resourceExtname == .gcdump",
+          "group": "navigation@9"
+        },
+        {
+          "command": "monitor-dotnet.openCpuSnapshot",
+          "when": "resourceExtname == .json && resourceFilename =~ /\\.speedscope\\.json$/",
           "group": "navigation@9"
         }
       ],
@@ -427,6 +468,18 @@
         },
         {
           "command": "monitor-dotnet.revealDump",
+          "when": "false"
+        },
+        {
+          "command": "monitor-dotnet.refreshSnapshots",
+          "when": "false"
+        },
+        {
+          "command": "monitor-dotnet.revealSnapshot",
+          "when": "false"
+        },
+        {
+          "command": "monitor-dotnet.compareSnapshotsOfKind",
           "when": "false"
         }
       ],
@@ -467,18 +520,63 @@
           "group": "inline@3"
         },
         {
+          "command": "monitor-dotnet.openDumpInTerminal",
+          "when": "view == monitor-dotnet.dumps && viewItem == dump",
+          "group": "inline@4"
+        },
+        {
+          "command": "monitor-dotnet.compareSnapshotsOfKind",
+          "when": "view == monitor-dotnet.snapshots && viewItem == cpuSnapshotGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.compareSnapshotsOfKind",
+          "when": "view == monitor-dotnet.snapshots && viewItem == memorySnapshotGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.collectMemoryDump",
+          "when": "view == monitor-dotnet.snapshots && viewItem == memorySnapshotGroup && monitor-dotnet.isMonitoring",
+          "group": "1_analysis@1"
+        },
+        {
+          "command": "monitor-dotnet.openCpuSnapshot",
+          "when": "view == monitor-dotnet.snapshots && viewItem == cpuSnapshot",
+          "group": "inline@1"
+        },
+        {
+          "command": "monitor-dotnet.compareCpuSnapshots",
+          "when": "view == monitor-dotnet.snapshots && viewItem == cpuSnapshot",
+          "group": "inline@2"
+        },
+        {
+          "command": "monitor-dotnet.revealSnapshot",
+          "when": "view == monitor-dotnet.snapshots && viewItem == cpuSnapshot",
+          "group": "inline@3"
+        },
+        {
+          "command": "monitor-dotnet.traceTopMethods",
+          "when": "view == monitor-dotnet.snapshots && viewItem == cpuSnapshot",
+          "group": "1_analysis@1"
+        },
+        {
+          "command": "monitor-dotnet.collectMemoryDump",
+          "when": "view == monitor-dotnet.snapshots && viewItem == memorySnapshot && monitor-dotnet.isMonitoring",
+          "group": "1_analysis@1"
+        },
+        {
           "command": "monitor-dotnet.analyzeMemorySnapshot",
-          "when": "view == monitor-dotnet.dumps && viewItem == snapshot",
+          "when": "view == monitor-dotnet.snapshots && viewItem == memorySnapshot",
           "group": "inline@1"
         },
         {
           "command": "monitor-dotnet.compareSnapshots",
-          "when": "view == monitor-dotnet.dumps && viewItem == snapshot",
+          "when": "view == monitor-dotnet.snapshots && viewItem == memorySnapshot",
           "group": "inline@2"
         },
         {
-          "command": "monitor-dotnet.revealDump",
-          "when": "view == monitor-dotnet.dumps && viewItem == snapshot",
+          "command": "monitor-dotnet.revealSnapshot",
+          "when": "view == monitor-dotnet.snapshots && viewItem == memorySnapshot",
           "group": "inline@3"
         }
       ],
@@ -486,6 +584,10 @@
         {
           "view": "monitor-dotnet.dumps",
           "contents": "%view.dumps.welcome%"
+        },
+        {
+          "view": "monitor-dotnet.snapshots",
+          "contents": "%view.snapshots.welcome%"
         }
       ]
     },
@@ -523,13 +625,6 @@
           "minimum": 0.2,
           "maximum": 60,
           "description": "%config.refreshIntervalSeconds.description%"
-        },
-        "monitor-dotnet.chartWindowSeconds": {
-          "type": "number",
-          "default": 120,
-          "minimum": 10,
-          "maximum": 3600,
-          "description": "%config.chartWindowSeconds.description%"
         },
         "monitor-dotnet.enableIssueDetection": {
           "type": "boolean",

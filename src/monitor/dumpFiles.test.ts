@@ -5,7 +5,7 @@ import { mkdtemp, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { listDumpFiles, listMemoryFiles, listSnapshotFiles } from './dumpFiles.ts';
+import { listAllSnapshots, listDumpFiles, listMemoryFiles, listSnapshotFiles } from './dumpFiles.ts';
 
 test('в список попадают только .dmp, свежие первыми', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'monitor-dotnet-dumps-'));
@@ -35,6 +35,31 @@ test('снимки памяти отделяются от дампов', async (
   const snapshots = await listSnapshotFiles(directory);
   assert.deepEqual(snapshots.map(file => path.basename(file.file)), ['memory-1.gcdump']);
   assert.deepEqual(snapshots.map(file => file.kind), ['snapshot']);
+});
+
+test('все снимки: CPU-профили и память, свежие первыми', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'monitor-dotnet-snapshots-'));
+  const cpuOlder = path.join(directory, 'cpu-1.speedscope.json');
+  const cpuNewer = path.join(directory, 'cpu-2.SPEEDSCOPE.JSON');
+  const memory = path.join(directory, 'memory-1.gcdump');
+  await writeFile(cpuOlder, 'cpu-old');
+  await writeFile(cpuNewer, 'cpu-new');
+  await writeFile(memory, 'memory');
+  await writeFile(path.join(directory, 'dump-1.dmp'), 'dump');
+  await writeFile(path.join(directory, 'cpu-1.speedscope.json.bak'), 'noise');
+  await utimes(cpuOlder, new Date(2020, 0, 1), new Date(2020, 0, 1));
+  await utimes(cpuNewer, new Date(2021, 0, 1), new Date(2021, 0, 1));
+  await utimes(memory, new Date(2020, 6, 1), new Date(2020, 6, 1));
+
+  const files = await listAllSnapshots(directory);
+  assert.deepEqual(files.map(file => path.basename(file.file)), [
+    'cpu-2.SPEEDSCOPE.JSON',
+    'memory-1.gcdump',
+    'cpu-1.speedscope.json',
+  ]);
+  assert.deepEqual(files.map(file => file.kind), ['cpu', 'memory', 'cpu']);
+  // Дампы и посторонние файлы в снимки не попадают.
+  assert.equal(files.some(file => file.file.endsWith('.dmp') || file.file.endsWith('.bak')), false);
 });
 
 test('отсутствующий каталог даёт пустой список', async () => {

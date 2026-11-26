@@ -27,6 +27,8 @@ import { IssueStore } from './core/issueStore.ts';
 import { IssuesTreeProvider } from './views/issuesTreeProvider.ts';
 import { PerformanceChartPanel } from './views/performanceChartPanel.ts';
 import { DumpsTreeProvider } from './views/dumpsTreeProvider.ts';
+import { SnapshotsTreeProvider } from './views/snapshotsTreeProvider.ts';
+import type { SnapshotKind } from './core/snapshotFiles.ts';
 import { MonitorStatusBar } from './views/statusBar.ts';
 
 /**
@@ -90,6 +92,14 @@ export function activate(context: vscode.ExtensionContext): void {
   );
   const dumpsView = vscode.window.createTreeView('monitor-dotnet.dumps', {
     treeDataProvider: dumpsProvider,
+  });
+
+  // Панель «Снимки»: CPU-профили и снимки памяти, сгруппированные по виду.
+  const snapshotsProvider = new SnapshotsTreeProvider(
+    () => profiling.listSnapshots(settings.profilingOutputDirectory),
+  );
+  const snapshotsView = vscode.window.createTreeView('monitor-dotnet.snapshots', {
+    treeDataProvider: snapshotsProvider,
   });
 
   // Проблемы копятся по процессам: данные монитора очищаются при смене процесса,
@@ -156,6 +166,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // Запись профиля может закончиться сама — например, когда задана длительность.
   profiling.onDidChangeProfiling(running => {
     void vscode.commands.executeCommand('setContext', 'monitor-dotnet.isProfiling', running);
+    if (!running) {
+      // Рядом с `.nettrace` появился `.speedscope.json` — он тоже снимок CPU.
+      snapshotsProvider.refresh();
+    }
   });
 
   // Сессия, для которой сейчас идёт мониторинг: нужна, чтобы остановиться при её завершении.
@@ -254,6 +268,14 @@ export function activate(context: vscode.ExtensionContext): void {
         dumpsProvider.refresh();
       }
     }),
+    snapshotsProvider,
+    snapshotsView,
+    snapshotsView.onDidChangeVisibility(() => {
+      // Снимки могли появиться, пока панель была свёрнута.
+      if (snapshotsView.visible) {
+        snapshotsProvider.refresh();
+      }
+    }),
     statusBar,
     controller,
     vscode.window.registerWebviewViewProvider(PerformanceChartPanel.viewType, performancePanel),
@@ -281,8 +303,9 @@ export function activate(context: vscode.ExtensionContext): void {
       applyWindow(settings);
       // Сообщаем панели новые параметры (окно графиков, период обновления).
       performancePanel.sync();
-      // Каталог результатов мог измениться — список дампов перечитываем.
+      // Каталог результатов мог измениться — списки дампов и снимков перечитываем.
       dumpsProvider.refresh();
+      snapshotsProvider.refresh();
       // Настройка поиска проблем могла измениться: дерево перечитывает список.
       issuesProvider.refresh();
 
@@ -374,9 +397,45 @@ export function activate(context: vscode.ExtensionContext): void {
       const pid = requirePid(controller);
       if (pid !== undefined) {
         await profiling.collectMemorySnapshot(pid, settings.dotnetPath, settings.profilingOutputDirectory);
-        // Снимок теперь тоже попадает в панель «Дампы».
-        dumpsProvider.refresh();
+        // Снимок попадает в панель «Снимки».
+        snapshotsProvider.refresh();
       }
+    }),
+    // Единая кнопка снимков: вид выбирается в списке, чтобы не держать две кнопки рядом.
+    vscode.commands.registerCommand('monitor-dotnet.takeSnapshot', async () => {
+      const pid = requirePid(controller);
+      if (pid === undefined) {
+        return;
+      }
+
+      const picked = await vscode.window.showQuickPick(
+        [
+          {
+            label: translate('CPU snapshot'),
+            description: translate('Sample the CPU for {0} s', settings.cpuSnapshotSeconds),
+            value: 'cpu' as const,
+          },
+          {
+            label: translate('Memory snapshot (GCDump)'),
+            description: translate('Managed heap by type, with sizes and counts'),
+            value: 'memory' as const,
+          },
+        ],
+        { title: translate('Take snapshot') },
+      );
+      if (picked === undefined) {
+        return;
+      }
+
+      if (picked.value === 'cpu') {
+        await profiling.takeCpuSnapshot(pid, settings.dotnetPath, settings.profilingOutputDirectory, {
+          durationSeconds: settings.cpuSnapshotSeconds,
+        });
+      } else {
+        await profiling.collectMemorySnapshot(pid, settings.dotnetPath, settings.profilingOutputDirectory);
+      }
+
+      snapshotsProvider.refresh();
     }),
     vscode.commands.registerCommand('monitor-dotnet.startProfiling', async () => {
       const pid = requirePid(controller);
@@ -395,12 +454,52 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('monitor-dotnet.stopProfiling', async () => {
       await profiling.stopProfiling();
     }),
+    // Снимок CPU: короткая запись сэмплирующего профиля с графическим отчётом.
+    vscode.commands.registerCommand('monitor-dotnet.takeCpuSnapshot', async () => {
+      const pid = requirePid(controller);
+      if (pid === undefined) {
+        return;
+      }
+
+      await profiling.takeCpuSnapshot(pid, settings.dotnetPath, settings.profilingOutputDirectory, {
+        durationSeconds: settings.cpuSnapshotSeconds,
+      });
+      snapshotsProvider.refresh();
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.openCpuSnapshot', async (target?: unknown) => {
+      await profiling.openCpuSnapshot(settings.profilingOutputDirectory, dumpFileFromArgument(target));
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.compareCpuSnapshots', async (target?: unknown) => {
+      await profiling.compareCpuSnapshots(settings.profilingOutputDirectory, dumpFileFromArgument(target));
+    }),
+    // Сравнение из заголовка группы «Снимки»: вид берётся из узла дерева.
+    vscode.commands.registerCommand('monitor-dotnet.compareSnapshotsOfKind', async (node?: unknown) => {
+      const kind = snapshotKindFromNode(node);
+      if (kind === 'cpu') {
+        await profiling.compareCpuSnapshots(settings.profilingOutputDirectory);
+      } else if (kind === 'memory') {
+        await profiling.compareMemorySnapshots(settings.dotnetPath, settings.profilingOutputDirectory);
+      }
+    }),
+    vscode.commands.registerCommand('monitor-dotnet.refreshSnapshots', () => snapshotsProvider.refresh()),
+    vscode.commands.registerCommand('monitor-dotnet.revealSnapshot', async (target?: unknown) => {
+      const file = dumpFileFromArgument(target);
+      if (file !== undefined) {
+        await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(file));
+      }
+    }),
     // Записанный ранее трейс: конвертация в Speedscope и быстрый отчёт по методам.
     vscode.commands.registerCommand('monitor-dotnet.convertTrace', async () => {
       await profiling.convertTrace(settings.dotnetPath, settings.profilingOutputDirectory);
+      // Преобразование создаёт новый `.speedscope.json`.
+      snapshotsProvider.refresh();
     }),
-    vscode.commands.registerCommand('monitor-dotnet.traceTopMethods', async () => {
-      await profiling.showTraceTopMethods(settings.dotnetPath, settings.profilingOutputDirectory);
+    vscode.commands.registerCommand('monitor-dotnet.traceTopMethods', async (target?: unknown) => {
+      await profiling.showTraceTopMethods(
+        settings.dotnetPath,
+        settings.profilingOutputDirectory,
+        dumpFileFromArgument(target),
+      );
     }),
     // Выгрузка счётчиков в файл: формат и длительность спрашиваем один раз на запуск.
     vscode.commands.registerCommand('monitor-dotnet.exportCounters', async () => {
@@ -464,6 +563,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('monitor-dotnet.analyzeMemoryDump', async (uri?: vscode.Uri) => {
       const dumpFile = uri?.scheme === 'file' ? uri.fsPath : undefined;
       await profiling.analyzeMemoryDump(settings.dotnetPath, settings.profilingOutputDirectory, dumpFile);
+    }),
+    // Интерактивный SOS: любые команды, включая `gcroot -all` и `dumpobj` с параметрами.
+    vscode.commands.registerCommand('monitor-dotnet.openDumpInTerminal', async (target?: unknown) => {
+      await profiling.openDumpInTerminal(
+        settings.dotnetPath,
+        settings.profilingOutputDirectory,
+        dumpFileFromArgument(target),
+      );
     }),
     // Разбор снимка памяти: `dotnet-gcdump report` строит ту же панель, что и дамп.
     vscode.commands.registerCommand('monitor-dotnet.analyzeMemorySnapshot', async (target?: unknown) => {
@@ -1113,7 +1220,22 @@ async function addMonitorFilter(target: unknown): Promise<void> {
   void vscode.window.setStatusBarMessage(translate('Collection filter updated: {0}', next.join(', ')), 4000);
 }
 
-/** Путь к дампу из аргумента команды: элемент дерева, Uri или строка. */function dumpFileFromArgument(value: unknown): string | undefined {
+/** Вид снимка из узла дерева «Снимки»: нужен команде сравнения группы. */
+function snapshotKindFromNode(value: unknown): SnapshotKind | undefined {
+  if (value === null || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const node = value as { nodeType?: unknown; snapshotKind?: unknown };
+  if (node.nodeType === 'group' && (node.snapshotKind === 'cpu' || node.snapshotKind === 'memory')) {
+    return node.snapshotKind;
+  }
+
+  return undefined;
+}
+
+/** Путь к дампу из аргумента команды: элемент дерева, Uri или строка. */
+function dumpFileFromArgument(value: unknown): string | undefined {
   if (typeof value === 'string' && value.length > 0) {
     return value;
   }
